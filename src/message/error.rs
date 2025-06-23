@@ -3,7 +3,7 @@ use crate::state::StateError;
 use crate::finality::FinalityError;
 
 /// Error types for message handling
-#[derive(Debug, Error)]
+#[derive(Debug, Clone, Error)]
 pub enum MessageError {
     #[error("Invalid message format: {0}")]
     InvalidFormat(String),

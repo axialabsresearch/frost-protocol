@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use tokio::sync::{RwLock, broadcast};
 use tracing::{info, warn, error};
 
-use crate::finality::{FinalitySignal, FinalityError, ErrorSeverity};
+use crate::finality::{FinalitySignal, error::{FinalityError, ErrorSeverity}};
 use crate::state::BlockRef;
 
 /// Configuration for finality monitoring

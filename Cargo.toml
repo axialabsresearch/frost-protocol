@@ -1,31 +1,48 @@
 [package]
 name = "frost-protocol"
 version = "0.1.0"
-edition = "2024"
-description = "Finality Reliant Optimized State Transition Protocol"
+edition = "2021"
+description = "FROST (Finality Reliant Optimized State Transition) Protocol implementation"
 license = "Apache-2.0"
 
 [dependencies]
-# Async runtime
-tokio = { version = "1.36", features = ["full"] }
-async-trait = "0.1"
-
-# Serialization
+thiserror = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-
-# Types
-uuid = { version = "1.7", features = ["v4", "serde"] }
-
-# Error handling
-thiserror = "1.0"
-anyhow = "1.0"
-
-# Crypto
-sha2 = "0.10"
-blake2 = "0.10"
-
-# Utilities
+tokio = { version = "1.0", features = ["full"] }
+async-trait = "0.1"
 tracing = "0.1"
-futures = "0.3"
-parking_lot = "0.12.4"
+uuid = { version = "1.0", features = ["v4", "serde"] }
+hex = { version = "0.4", features = ["serde"] }
+
+# Substrate/Polkadot dependencies
+subxt = { version = "0.31", features = ["substrate-compat"] }
+codec = { package = "parity-scale-codec", version = "3.6", features = ["derive"] }
+sp-core = { version = "24.0", features = ["full_crypto"] }
+sp-runtime = { version = "24.0", features = ["std"] }
+sp-consensus-babe = "0.27"
+sp-consensus-grandpa = "0.27"
+sp-consensus-aura = "0.27"
+polkadot-primitives = { version = "0.9", features = ["std"] }
+parity-scale-codec-derive = "3.6"
+
+# Metrics and monitoring
+metrics = { version = "0.20", features = ["std"] }
+metrics-exporter-prometheus = "0.11"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[dev-dependencies]
+tokio-test = "0.4"
+pretty_assertions = "1.0"
+test-log = { version = "0.2", features = ["trace"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+proptest = "1.0"
+mockall = "0.11"
+
+[[test]]
+name = "unit"
+path = "tests/unit/mod.rs"
+
+[[test]]
+name = "integration"
+path = "tests/integration/mod.rs"

@@ -4,108 +4,85 @@ use crate::state::BlockId;
 /// Finality signal from different chains
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum FinalitySignal {
+    /// Ethereum finality signal
     Ethereum {
+        /// Block number
         block_number: u64,
+        /// Block hash
         block_hash: [u8; 32],
+        /// Number of confirmations
         confirmations: u32,
+        /// Finality type
         finality_type: EthereumFinalityType,
+        /// Chain metadata
         metadata: Option<EthereumMetadata>,
     },
-    
-    Solana {
-        slot: u64,
-        epoch: u64,
-        bank_hash: [u8; 32],
-        vote_account_signatures: Vec<[u8; 64]>,
-        metadata: Option<SolanaMetadata>,
-    },
-    
-    Substrate {
-        block_hash: [u8; 32],
-        block_number: u64,
-        justification: Vec<u8>,
-        finality_type: SubstrateFinalityType,
-        metadata: Option<SubstrateMetadata>,
-    },
-    
+
+    /// Cosmos finality signal
     Cosmos {
+        /// Block height
         height: u64,
-        app_hash: [u8; 32],
-        validator_signatures: Vec<[u8; 64]>,
+        /// Block hash
+        block_hash: [u8; 32],
+        /// Validator signatures
+        validator_signatures: Vec<Vec<u8>>,
+        /// Chain metadata
         metadata: Option<CosmosMetadata>,
     },
-    
-    Near {
-        block_height: u64,
+
+    /// Substrate finality signal
+    Substrate {
+        /// Block number
+        block_number: u64,
+        /// Block hash
         block_hash: [u8; 32],
-        epoch_id: [u8; 32],
-        next_epoch_id: [u8; 32],
-        metadata: Option<NearMetadata>,
-    },
-    
-    Custom {
-        chain_id: String,
-        block_id: String,
-        proof_data: Vec<u8>,
-        metadata: serde_json::Value,
+        /// Chain metadata
+        metadata: Option<SubstrateMetadata>,
     },
 }
 
 /// Ethereum finality types
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum EthereumFinalityType {
+    /// PoW confirmations
     Confirmations,
+    /// Beacon chain finalized
     BeaconFinalized,
-    BeaconJustified,
 }
 
-/// Substrate finality types
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum SubstrateFinalityType {
-    Grandpa,
-    Babe,
-    Custom(String),
-}
-
-/// Chain-specific metadata for Ethereum
+/// Basic Ethereum metadata
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EthereumMetadata {
-    pub gas_used: u64,
-    pub base_fee: u64,
-    pub difficulty: u64,
-    pub total_difficulty: u64,
+    /// Current slot
+    pub current_slot: Option<u64>,
+    /// Head slot
+    pub head_slot: Option<u64>,
+    /// Active validator count
+    pub active_validators: Option<u64>,
+    /// Total validator count
+    pub total_validators: Option<u64>,
 }
 
-/// Chain-specific metadata for Solana
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SolanaMetadata {
-    pub super_majority_root: u64,
-    pub vote_account_stake: u64,
-    pub total_active_stake: u64,
-}
-
-/// Chain-specific metadata for Substrate
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SubstrateMetadata {
-    pub authority_set_id: u64,
-    pub validator_set_id: u64,
-    pub consensus_version: u32,
-}
-
-/// Chain-specific metadata for Cosmos
+/// Basic Cosmos metadata
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CosmosMetadata {
-    pub validator_power: u64,
-    pub total_voting_power: u64,
-    pub app_version: u32,
+    /// Voting power
+    pub voting_power: Option<u64>,
+    /// Total power
+    pub total_power: Option<u64>,
 }
 
-/// Chain-specific metadata for NEAR
+/// Basic Substrate metadata
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct NearMetadata {
-    pub validator_stake: u64,
-    pub total_stake: u64,
-    pub epoch_height: u64,
+pub struct SubstrateMetadata {
+    /// Voting power
+    pub voting_power: Option<u64>,
+    /// Total power
+    pub total_power: Option<u64>,
+    /// Active validator count
+    pub active_validators: Option<u64>,
+    /// Total validator count
+    pub total_validators: Option<u64>,
 }
 
 /// Block references for cross-chain verification
@@ -115,7 +92,6 @@ pub struct BlockRefs {
     pub target_block: BlockId,
     pub finality_block: BlockId,
     pub timestamp: u64,
-    pub metadata: Option<serde_json::Value>,
 }
 
 impl Default for BlockRefs {
@@ -128,7 +104,6 @@ impl Default for BlockRefs {
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
                 .as_secs(),
-            metadata: None,
         }
     }
 }
