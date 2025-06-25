@@ -87,9 +87,10 @@ fn test_error_severity() {
 
 #[test]
 fn test_error_severity_ordering() {
-    assert!(ErrorSeverity::Critical > ErrorSeverity::Error);
-    assert!(ErrorSeverity::Error > ErrorSeverity::Warning);
-    assert!(ErrorSeverity::Critical > ErrorSeverity::Warning);
+    // Test using partial_cmp instead of direct comparison
+    assert!(matches!(ErrorSeverity::Critical.partial_cmp(&ErrorSeverity::Error), Some(std::cmp::Ordering::Greater)));
+    assert!(matches!(ErrorSeverity::Error.partial_cmp(&ErrorSeverity::Warning), Some(std::cmp::Ordering::Greater)));
+    assert!(matches!(ErrorSeverity::Critical.partial_cmp(&ErrorSeverity::Warning), Some(std::cmp::Ordering::Greater)));
     
     let severities = vec![
         ErrorSeverity::Warning,
@@ -98,7 +99,7 @@ fn test_error_severity_ordering() {
     ];
     
     let mut sorted = severities.clone();
-    sorted.sort();
+    sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
     
     assert_eq!(sorted, vec![
         ErrorSeverity::Warning,

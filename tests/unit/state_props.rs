@@ -1,10 +1,10 @@
 use proptest::prelude::*;
 use frost_protocol::state::{
-    BlockRef, ChainId, BlockId, StateRoot,
+    BlockRef, ChainId,
     error::{StateError, ErrorSeverity},
 };
-
-use crate::common::{test_chain_id, test_block_ref};
+use frost_protocol::state::types::{BlockId, StateRoot};
+use std::cmp::Ordering;
 
 proptest! {
     #[test]
@@ -13,19 +13,20 @@ proptest! {
         number in 0u64..1_000_000u64,
         hash in prop::array::uniform32(0u8..),
     ) {
-        let chain_id = ChainId::new(chain.clone());
+        let chain_id = ChainId::new(&chain);
         let block_ref = BlockRef::new(chain_id.clone(), number, hash);
         
         // Properties that should always hold
-        prop_assert_eq!(block_ref.chain_id().to_string(), chain);
+        prop_assert_eq!(block_ref.chain_id().to_string(), chain.clone());
         prop_assert_eq!(block_ref.number(), number);
         prop_assert_eq!(block_ref.hash(), &hash);
         
         // Reflexive equality
-        prop_assert_eq!(block_ref, block_ref.clone());
+        let block_ref_clone = block_ref.clone();
+        let display = block_ref_clone.to_string();
+        prop_assert_eq!(block_ref, block_ref_clone);
         
         // Display formatting should contain all components
-        let display = block_ref.to_string();
         prop_assert!(display.contains(&chain));
         prop_assert!(display.contains(&number.to_string()));
         prop_assert!(display.contains(&hex::encode(hash)));
@@ -66,7 +67,8 @@ proptest! {
         number in 0u64..1_000_000u64,
         root_hash in prop::array::uniform32(0u8..),
     ) {
-        let block_ref = test_block_ref(&chain, number);
+        let chain_id = ChainId::new(&chain);
+        let block_ref = BlockRef::new(chain_id, number, [0u8; 32]);
         let metadata = serde_json::json!({
             "version": format!("{}.{}.{}", 
                 number % 10,
@@ -97,7 +99,7 @@ proptest! {
         number in 0u64..1_000_000u64,
         msg in "[a-zA-Z0-9_. -]{1,100}",
     ) {
-        let block_ref = test_block_ref(&chain, number);
+        let block_ref = BlockRef::new(ChainId::new(&chain), number, [0u8; 32]);
         
         // Test different error variants
         let errors = vec![
@@ -126,20 +128,20 @@ proptest! {
                 }
             }
             
-            // Test severity ordering
+            // Test severity ordering using partial_cmp
             let severity = error.severity();
             match severity {
                 ErrorSeverity::Critical => {
-                    prop_assert!(severity > ErrorSeverity::Error);
-                    prop_assert!(severity > ErrorSeverity::Warning);
+                    prop_assert!(matches!(severity.partial_cmp(&ErrorSeverity::Error), Some(Ordering::Greater)));
+                    prop_assert!(matches!(severity.partial_cmp(&ErrorSeverity::Warning), Some(Ordering::Greater)));
                 }
                 ErrorSeverity::Error => {
-                    prop_assert!(severity > ErrorSeverity::Warning);
-                    prop_assert!(severity < ErrorSeverity::Critical);
+                    prop_assert!(matches!(severity.partial_cmp(&ErrorSeverity::Warning), Some(Ordering::Greater)));
+                    prop_assert!(matches!(severity.partial_cmp(&ErrorSeverity::Critical), Some(Ordering::Less)));
                 }
                 ErrorSeverity::Warning => {
-                    prop_assert!(severity < ErrorSeverity::Error);
-                    prop_assert!(severity < ErrorSeverity::Critical);
+                    prop_assert!(matches!(severity.partial_cmp(&ErrorSeverity::Error), Some(Ordering::Less)));
+                    prop_assert!(matches!(severity.partial_cmp(&ErrorSeverity::Critical), Some(Ordering::Less)));
                 }
             }
             

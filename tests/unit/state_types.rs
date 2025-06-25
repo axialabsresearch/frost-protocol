@@ -1,4 +1,5 @@
-use frost_protocol::state::{BlockRef, BlockId, ChainId, StateRoot, StateMetadata};
+use frost_protocol::state::{BlockRef, ChainId};
+use frost_protocol::state::types::{BlockId, StateRoot, StateMetadata};
 
 #[test]
 fn test_chain_id_creation_and_display() {
@@ -64,10 +65,7 @@ fn test_block_id_variants() {
     
     let hash_id = BlockId::Hash(hash);
     let number_id = BlockId::Number(number);
-    let composite_id = BlockId::Composite {
-        number,
-        hash,
-    };
+    let composite_id = BlockId::Composite { number, hash };
     
     match hash_id {
         BlockId::Hash(h) => assert_eq!(h, hash),

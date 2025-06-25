@@ -1,14 +1,46 @@
+#![allow(unused_imports)]
+#![allow(unused_variables)]
+
 use std::time::Duration;
 use serde::{Serialize, Deserialize};
 use thiserror::Error;
 use tracing::{info, warn, error};
 use std::sync::Arc;
-use std::sync::RwLock;
-use std::collections::LruCache;
+use tokio::sync::RwLock;
+use std::collections::HashMap;  // Using HashMap instead of LruCache for now
 use std::num::NonZeroUsize;
 
 use crate::state::BlockRef;
-use crate::finality::{FinalitySignal, FinalityError};
+use crate::finality::{
+    FinalitySignal,
+    FinalityError,
+    signal::{EthereumFinalityType, EthereumMetadata, CosmosMetadata},
+};
+
+// Error types
+#[derive(Error, Debug)]
+#[error("Finality verification error: {0}")]
+pub struct FinalityVerificationError(pub String);
+
+// Block types
+#[derive(Debug, Clone)]
+pub struct Block {
+    pub hash: [u8; 32],
+    pub number: u64,
+}
+
+#[derive(Debug, Clone)]
+pub struct BeaconBlock {
+    pub slot: u64,
+    pub epoch: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SolanaMetadata {
+    pub super_majority_root: u64,
+    pub vote_account_stake: u64,
+    pub total_active_stake: u64,
+}
 
 /// Errors that can occur during predicate validation
 #[derive(Error, Debug)]
@@ -130,7 +162,7 @@ impl EthereumPredicateValidator {
     async fn validate_beacon_finality(
         &self,
         block_ref: &BlockRef,
-        finality_type: EthereumFinalityType,
+        finality_type: &EthereumFinalityType,
         config: &PredicateConfig,
     ) -> Result<PredicateResult, PredicateError> {
         // Verify block exists in finality client
@@ -170,37 +202,12 @@ impl EthereumPredicateValidator {
                     }),
                 })
             }
-            EthereumFinalityType::BeaconJustified => {
-                // Verify block is justified in beacon chain
-                let is_justified = self.finality_client.is_block_justified(block_ref).await
-                    .map_err(|e| PredicateError::FinalityVerificationError(e.to_string()))?;
-                    
-                if !is_justified {
-                    return Ok(PredicateResult {
-                        is_satisfied: false,
-                        confidence: 0.0,
-                        evaluation_time: Duration::from_secs(0),
-                        validation_data: serde_json::json!({
-                            "status": "not_justified",
-                            "beacon_block": beacon_block.slot,
-                        }),
-                    });
-                }
-                
-                Ok(PredicateResult {
-                    is_satisfied: true,
-                    confidence: 0.9, // Justified has slightly lower confidence than finalized
-                    evaluation_time: Duration::from_secs(0),
-                    validation_data: serde_json::json!({
-                        "status": "justified",
-                        "beacon_block": beacon_block.slot,
-                        "justification_epoch": beacon_block.epoch,
-                    }),
-                })
+            EthereumFinalityType::Confirmations => {
+                // This shouldn't happen as Confirmations are handled separately
+                Err(PredicateError::InvalidFormat(
+                    "Confirmations should be handled by validate_pow_confirmations".into()
+                ))
             }
-            _ => Err(PredicateError::InvalidFormat(
-                "Invalid beacon finality type".into()
-            )),
         }
     }
 }
@@ -225,7 +232,7 @@ impl PredicateValidator for EthereumPredicateValidator {
                     EthereumFinalityType::Confirmations => {
                         self.validate_pow_confirmations(block_ref, *confirmations, config).await
                     }
-                    _ => self.validate_beacon_finality(block_ref, *finality_type, config).await,
+                    _ => self.validate_beacon_finality(block_ref, finality_type, config).await,
                 }
             }
             _ => Err(PredicateError::InvalidFormat(
@@ -317,12 +324,15 @@ impl PredicateValidator for SolanaPredicateValidator {
         let start = std::time::Instant::now();
         
         let result = match signal {
-            FinalitySignal::Solana {
-                vote_account_signatures,
-                metadata,
-                ..
-            } => {
-                self.validate_vote_accounts(block_ref, vote_account_signatures, metadata, config).await
+            FinalitySignal::Custom { chain_id, metadata, proof_data, .. } if chain_id == "solana" => {
+                let metadata: SolanaMetadata = serde_json::from_value(metadata.clone())
+                    .map_err(|e| PredicateError::InvalidFormat(format!("Invalid Solana metadata: {}", e)))?;
+                
+                let vote_signatures = proof_data.chunks(64)
+                    .map(|chunk| chunk.to_vec())
+                    .collect::<Vec<_>>();
+                
+                self.validate_vote_accounts(block_ref, &vote_signatures, &Some(metadata), config).await
             }
             _ => Err(PredicateError::InvalidFormat(
                 "Not a Solana finality signal".into()
@@ -382,7 +392,9 @@ impl CosmosPredicateValidator {
             }
             
             // Calculate voting power confidence
-            let power_ratio = metadata.validator_power as f64 / metadata.total_voting_power as f64;
+            let voting_power = metadata.voting_power.unwrap_or(0);
+            let total_power = metadata.total_power.unwrap_or(1);
+            let power_ratio = voting_power as f64 / total_power as f64;
             let confidence = if power_ratio >= 2.0/3.0 { 1.0 } else { power_ratio * 1.5 };
             
             Ok(PredicateResult {
@@ -390,10 +402,9 @@ impl CosmosPredicateValidator {
                 confidence,
                 evaluation_time: Duration::from_secs(0),
                 validation_data: serde_json::json!({
-                    "validator_power": metadata.validator_power,
-                    "total_voting_power": metadata.total_voting_power,
+                    "voting_power": voting_power,
+                    "total_power": total_power,
                     "power_ratio": power_ratio,
-                    "app_version": metadata.app_version,
                 }),
             })
         } else {
@@ -462,9 +473,6 @@ pub trait FinalityVerificationClient: Send + Sync {
     
     /// Check if block is finalized (Ethereum specific)
     async fn is_block_finalized(&self, block_ref: &BlockRef) -> Result<bool, FinalityVerificationError>;
-    
-    /// Check if block is justified (Ethereum specific)
-    async fn is_block_justified(&self, block_ref: &BlockRef) -> Result<bool, FinalityVerificationError>;
     
     /// Verify vote signatures (Solana specific)
     async fn verify_vote_signatures(
@@ -538,7 +546,7 @@ struct CachedBlockData {
 /// Caching finality verification client implementation
 pub struct CachingFinalityClient<C: FinalityVerificationClient> {
     inner: C,
-    block_cache: Arc<RwLock<LruCache<BlockRef, CachedBlockData>>>,
+    block_cache: Arc<RwLock<HashMap<BlockRef, CachedBlockData>>>,
     cache_ttl: Duration,
     metrics: Arc<RwLock<VerificationMetrics>>,
 }
@@ -547,7 +555,7 @@ impl<C: FinalityVerificationClient> CachingFinalityClient<C> {
     pub fn new(inner: C, cache_size: usize, cache_ttl: Duration) -> Self {
         Self {
             inner,
-            block_cache: Arc::new(RwLock::new(LruCache::new(NonZeroUsize::new(cache_size).unwrap()))),
+            block_cache: Arc::new(RwLock::new(HashMap::new())),
             cache_ttl,
             metrics: Arc::new(RwLock::new(VerificationMetrics::default())),
         }
@@ -555,17 +563,12 @@ impl<C: FinalityVerificationClient> CachingFinalityClient<C> {
 
     async fn get_cached_block(&self, block_ref: &BlockRef) -> Option<CachedBlockData> {
         let cache = self.block_cache.read().await;
-        if let Some(data) = cache.peek(block_ref) {
-            if data.last_updated.elapsed().unwrap() < self.cache_ttl {
-                return Some(data.clone());
-            }
-        }
-        None
+        cache.get(block_ref).cloned()
     }
 
     async fn cache_block(&self, block_ref: BlockRef, data: CachedBlockData) {
         let mut cache = self.block_cache.write().await;
-        cache.put(block_ref, data);
+        cache.insert(block_ref, data);
     }
 
     async fn update_metrics(&self, start: std::time::Instant, success: bool) {
@@ -605,7 +608,45 @@ impl<C: FinalityVerificationClient> FinalityVerificationClient for CachingFinali
         result
     }
 
-    // ... implement other trait methods with caching ...
+    async fn verify_block_hash(&self, block_ref: &BlockRef) -> Result<bool, FinalityVerificationError> {
+        self.inner.verify_block_hash(block_ref).await
+    }
+
+    async fn get_beacon_block(&self, block_ref: &BlockRef) -> Result<BeaconBlock, FinalityVerificationError> {
+        self.inner.get_beacon_block(block_ref).await
+    }
+
+    async fn is_block_finalized(&self, block_ref: &BlockRef) -> Result<bool, FinalityVerificationError> {
+        self.inner.is_block_finalized(block_ref).await
+    }
+
+    async fn verify_vote_signatures(&self, block_ref: &BlockRef, signatures: &[Vec<u8>]) -> Result<bool, FinalityVerificationError> {
+        self.inner.verify_vote_signatures(block_ref, signatures).await
+    }
+
+    async fn verify_validator_signatures(&self, block_ref: &BlockRef, signatures: &[Vec<u8>]) -> Result<bool, FinalityVerificationError> {
+        self.inner.verify_validator_signatures(block_ref, signatures).await
+    }
+
+    async fn get_latest_finalized_block(&self) -> Result<u64, FinalityVerificationError> {
+        self.inner.get_latest_finalized_block().await
+    }
+
+    async fn get_chain_head(&self) -> Result<BlockRef, FinalityVerificationError> {
+        self.inner.get_chain_head().await
+    }
+
+    async fn verify_block_inclusion(&self, block_ref: &BlockRef, proof: &[u8]) -> Result<bool, FinalityVerificationError> {
+        self.inner.verify_block_inclusion(block_ref, proof).await
+    }
+
+    async fn get_finality_confidence(&self, block_ref: &BlockRef) -> Result<f64, FinalityVerificationError> {
+        self.inner.get_finality_confidence(block_ref).await
+    }
+
+    async fn verify_chain_rules(&self, block_ref: &BlockRef, rules: &ChainRules) -> Result<bool, FinalityVerificationError> {
+        self.inner.verify_chain_rules(block_ref, rules).await
+    }
 }
 
 /// Performance metrics for verification

@@ -1,7 +1,37 @@
 use thiserror::Error;
 use crate::state::BlockRef;
+use std::cmp::Ordering;
 
-#[derive(Clone, Debug, Error)]
+/// Error severity levels
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ErrorSeverity {
+    Warning,
+    Error,
+    Critical,
+}
+
+impl PartialOrd for ErrorSeverity {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for ErrorSeverity {
+    fn cmp(&self, other: &Self) -> Ordering {
+        match (self, other) {
+            (ErrorSeverity::Critical, ErrorSeverity::Critical) => Ordering::Equal,
+            (ErrorSeverity::Critical, _) => Ordering::Greater,
+            (ErrorSeverity::Error, ErrorSeverity::Critical) => Ordering::Less,
+            (ErrorSeverity::Error, ErrorSeverity::Error) => Ordering::Equal,
+            (ErrorSeverity::Error, ErrorSeverity::Warning) => Ordering::Greater,
+            (ErrorSeverity::Warning, ErrorSeverity::Warning) => Ordering::Equal,
+            (ErrorSeverity::Warning, _) => Ordering::Less,
+        }
+    }
+}
+
+/// State management errors
+#[derive(Clone, Error, Debug)]
 pub enum StateError {
     #[error("Invalid state transition: {0}")]
     InvalidTransition(String),
@@ -41,11 +71,4 @@ impl StateError {
             StateError::Internal(_) => ErrorSeverity::Critical,
         }
     }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ErrorSeverity {
-    Warning,
-    Error,
-    Critical,
 } 

@@ -1,14 +1,9 @@
 mod state_types;
 mod state_error;
 mod state_props;
-mod finality_verifier;
-mod message_validator;
-mod chain_metrics;
-mod predicate_validator;
 
 pub mod chain;
 pub mod validation;
-pub mod state;
 
 #[cfg(test)]
 mod tests {

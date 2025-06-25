@@ -3,6 +3,7 @@ use frost_protocol::{
     state::BlockRef,
     finality::{
         FinalitySignal,
+        signal::{EthereumFinalityType, EthereumMetadata, CosmosMetadata},
         predicate::{
             PredicateValidator,
             PredicateConfig,
@@ -10,18 +11,30 @@ use frost_protocol::{
             PredicateError,
             FinalityVerificationClient,
             EthereumPredicateValidator,
-            SolanaPredicateValidator,
             CosmosPredicateValidator,
         },
-        EthereumFinalityType,
-        SolanaMetadata,
-        CosmosMetadata,
     },
 };
 
-use crate::common::{test_block_ref, test_chain_id};
+use crate::common::test_block_ref;
 use mockall::predicate::*;
 use mockall::mock;
+
+// Block types for testing
+#[derive(Debug, Clone)]
+struct Block {
+    hash: [u8; 32],
+    number: u64,
+}
+
+#[derive(Debug, Clone)]
+struct BeaconBlock {
+    slot: u64,
+    epoch: u64,
+}
+
+#[derive(Debug, Clone)]
+pub struct FinalityVerificationError(String);
 
 // Mock finality verification client for testing
 mock! {
@@ -31,7 +44,6 @@ mock! {
         fn get_beacon_block(&self, block_ref: &BlockRef) -> Result<BeaconBlock, FinalityVerificationError>;
         fn is_block_finalized(&self, block_ref: &BlockRef) -> Result<bool, FinalityVerificationError>;
         fn is_block_justified(&self, block_ref: &BlockRef) -> Result<bool, FinalityVerificationError>;
-        fn verify_vote_signatures(&self, block_ref: &BlockRef, signatures: &[Vec<u8>]) -> Result<bool, FinalityVerificationError>;
         fn verify_validator_signatures(&self, block_ref: &BlockRef, signatures: &[Vec<u8>]) -> Result<bool, FinalityVerificationError>;
     }
 }
@@ -93,7 +105,12 @@ async fn test_ethereum_predicate_validation() {
         block_hash: [0u8; 32],
         confirmations: 1,
         finality_type: EthereumFinalityType::BeaconFinalized,
-        metadata: None,
+        metadata: Some(EthereumMetadata {
+            current_slot: Some(32000),
+            head_slot: Some(32000),
+            active_validators: Some(300000),
+            total_validators: Some(400000),
+        }),
     };
     
     let result = validator.validate_predicate(&block_ref, &beacon_signal, &config).await.unwrap();
@@ -211,12 +228,11 @@ async fn test_cosmos_predicate_validation() {
     // Test valid signal
     let valid_signal = FinalitySignal::Cosmos {
         height: 1000,
-        round: 0,
         block_hash: [0u8; 32],
         validator_signatures: vec![[1u8; 64].to_vec()],
         metadata: Some(CosmosMetadata {
-            total_voting_power: 1000,
-            signed_voting_power: 700,
+            voting_power: Some(700),
+            total_power: Some(1000),
         }),
     };
     
@@ -227,12 +243,11 @@ async fn test_cosmos_predicate_validation() {
     // Test insufficient voting power
     let insufficient_signal = FinalitySignal::Cosmos {
         height: 1000,
-        round: 0,
         block_hash: [0u8; 32],
         validator_signatures: vec![[1u8; 64].to_vec()],
         metadata: Some(CosmosMetadata {
-            total_voting_power: 1000,
-            signed_voting_power: 500,
+            voting_power: Some(500),
+            total_power: Some(1000),
         }),
     };
     
@@ -243,7 +258,6 @@ async fn test_cosmos_predicate_validation() {
     // Test missing metadata
     let invalid_signal = FinalitySignal::Cosmos {
         height: 1000,
-        round: 0,
         block_hash: [0u8; 32],
         validator_signatures: vec![[1u8; 64].to_vec()],
         metadata: None,
@@ -259,13 +273,13 @@ async fn test_predicate_timeout() {
     
     // Setup mock expectations to simulate slow response
     mock_client.expect_get_block()
-        .returning(|_| {
+        .returning(|_| Box::pin(async {
             tokio::time::sleep(Duration::from_secs(6)).await;
             Ok(Block {
                 hash: [0u8; 32],
                 number: 1000,
             })
-        });
+        }));
         
     let validator = EthereumPredicateValidator::new(Box::new(mock_client));
     let config = PredicateConfig {
@@ -284,7 +298,7 @@ async fn test_predicate_timeout() {
     };
     
     match validator.validate_predicate(&block_ref, &signal, &config).await {
-        Err(PredicateError::Timeout) => (),
+        Err(PredicateError::Timeout(_)) => (),
         _ => panic!("Expected timeout error"),
     }
 } 

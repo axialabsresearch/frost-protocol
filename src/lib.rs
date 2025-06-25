@@ -111,6 +111,7 @@ pub mod message;
 pub mod state;
 pub mod network;
 pub mod routing;
+pub mod metrics;
 
 // Re-exports
 pub use finality::{FinalitySignal, FinalityMonitor};

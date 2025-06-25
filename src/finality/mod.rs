@@ -139,10 +139,11 @@
 //! # }
 //! ```
 
-mod verifier;
-mod signal;
-mod error;
-mod monitor;
+pub mod verifier;
+pub mod signal;
+pub mod error;
+pub mod monitor;
+pub mod predicate;
 
 pub use verifier::{FinalityVerifier, FinalityConfig, BasicMetrics};
 pub use signal::{

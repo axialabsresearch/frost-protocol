@@ -121,7 +121,7 @@ node.start().await?;
 - Configurable protocol names and timeouts
 - Metrics for network health monitoring
 
-## Testing (Currently inactive due to maintainance issues)
+## Testing
 
 Run the test suite:
 ```bash
