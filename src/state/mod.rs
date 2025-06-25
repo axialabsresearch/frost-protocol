@@ -1,11 +1,13 @@
+#![allow(unused_imports)]
+
 mod transition;
 mod proof;
 mod types;
 mod error;
 
-pub use transition::StateTransition;
-pub use proof::StateProof;
-pub use types::{BlockId, BlockRef, StateRoot, ChainId};
+pub use transition::StateTransition as ImportedStateTransition;
+pub use proof::StateProof as ImportedStateProof;
+pub use types::{BlockId as ImportedBlockId, BlockRef, StateRoot, ChainId};
 pub use error::{StateError, ErrorSeverity};
 
 use crate::Result;

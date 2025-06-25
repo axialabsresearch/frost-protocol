@@ -1,8 +1,10 @@
+#![allow(unused_imports)]
+
 mod router;
 mod strategy;
 mod topology;
 
-pub use router::{MessageRouter, RouterConfig};
+pub use router::{MessageRouter as ImportedMessageRouter, RouterConfig};
 pub use strategy::{RoutingStrategy, DefaultStrategy};
 pub use topology::{NetworkTopology, TopologyNode};
 
@@ -11,20 +13,20 @@ use crate::Result;
 use std::collections::HashMap;
 use std::error::Error;
 use async_trait::async_trait;
-use crate::message::FrostMessage;
+use crate::message::{FrostMessage, MessageType};
 use crate::network::NetworkProtocol;
 
 /// Message router trait
 #[async_trait]
 pub trait MessageRouter: Send + Sync {
     /// Route a message
-    async fn route(&self, message: FrostMessage) -> Result<(), Box<dyn Error>>;
+    async fn route(&self, message: FrostMessage) -> std::result::Result<(), Box<dyn Error>>;
 
     /// Update routing table
-    async fn update_routes(&mut self, routes: HashMap<String, String>) -> Result<(), Box<dyn Error>>;
+    async fn update_routes(&mut self, routes: HashMap<String, String>) -> std::result::Result<(), Box<dyn Error>>;
 
     /// Get current routes
-    async fn get_routes(&self) -> Result<HashMap<String, String>, Box<dyn Error>>;
+    async fn get_routes(&self) -> std::result::Result<HashMap<String, String>, Box<dyn Error>>;
 }
 
 /// Basic routing configuration
@@ -86,7 +88,7 @@ impl<N: NetworkProtocol> BasicRouter<N> {
 
 #[async_trait]
 impl<N: NetworkProtocol> MessageRouter for BasicRouter<N> {
-    async fn route(&self, message: FrostMessage) -> Result<(), Box<dyn Error>> {
+    async fn route(&self, message: FrostMessage) -> std::result::Result<(), Box<dyn Error>> {
         // Basic routing for v0
         if let Some(target) = message.target.as_ref() {
             if let Some(next_hop) = self.routes.get(target) {
@@ -100,7 +102,7 @@ impl<N: NetworkProtocol> MessageRouter for BasicRouter<N> {
         Ok(())
     }
 
-    async fn update_routes(&mut self, routes: HashMap<String, String>) -> Result<(), Box<dyn Error>> {
+    async fn update_routes(&mut self, routes: HashMap<String, String>) -> std::result::Result<(), Box<dyn Error>> {
         // Basic route update for v0
         if routes.len() <= self.config.max_routes {
             self.routes = routes;
@@ -110,7 +112,7 @@ impl<N: NetworkProtocol> MessageRouter for BasicRouter<N> {
         }
     }
 
-    async fn get_routes(&self) -> Result<HashMap<String, String>, Box<dyn Error>> {
+    async fn get_routes(&self) -> std::result::Result<HashMap<String, String>, Box<dyn Error>> {
         Ok(self.routes.clone())
     }
 }
@@ -136,25 +138,25 @@ mod tests {
 
     #[async_trait]
     impl NetworkProtocol for MockNetwork {
-        async fn start(&mut self) -> Result<(), Box<dyn Error>> {
+        async fn start(&mut self) -> Result<()> {
             Ok(())
         }
 
-        async fn stop(&mut self) -> Result<(), Box<dyn Error>> {
+        async fn stop(&mut self) -> Result<()> {
             Ok(())
         }
 
-        async fn broadcast(&self, message: FrostMessage) -> Result<(), Box<dyn Error>> {
+        async fn broadcast(&self, message: FrostMessage) -> Result<()> {
             self.sent_messages.lock().await.push(("broadcast".to_string(), message));
             Ok(())
         }
 
-        async fn send_to(&self, peer_id: &str, message: FrostMessage) -> Result<(), Box<dyn Error>> {
+        async fn send_to(&self, peer_id: &str, message: FrostMessage) -> Result<()> {
             self.sent_messages.lock().await.push((peer_id.to_string(), message));
             Ok(())
         }
 
-        async fn get_peers(&self) -> Result<Vec<String>, Box<dyn Error>> {
+        async fn get_peers(&self) -> Result<Vec<String>> {
             Ok(vec![])
         }
     }
@@ -177,7 +179,7 @@ mod tests {
         
         // Test message routing
         let message = FrostMessage::new(
-            crate::message::MessageType::Discovery,
+            MessageType::Discovery,
             vec![1, 2, 3],
             "node1".to_string(),
             Some("node2".to_string()),

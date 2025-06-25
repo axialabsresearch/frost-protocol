@@ -55,8 +55,8 @@ async fn create_connection_pool(
 ) -> frost_protocol::Result<impl ConnectionPool> {
     let pool = DefaultConnectionPool::new(
         PoolConfig {
-            min_idle: 5,
-            max_size: 20,
+            min_idle_per_peer: 5,
+            max_per_peer: 20,
             max_lifetime: Duration::from_secs(3600),
             idle_timeout: Duration::from_secs(300),
             connection_timeout: Duration::from_secs(30),

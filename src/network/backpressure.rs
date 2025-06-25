@@ -3,7 +3,14 @@ use serde::{Serialize, Deserialize};
 use std::time::Duration;
 use tokio::sync::Semaphore;
 use std::sync::atomic::{AtomicU64, Ordering};
-use crate::Result;
+use crate::{Result, Error};
+
+// Add From implementation for semaphore errors
+impl From<tokio::sync::AcquireError> for Error {
+    fn from(e: tokio::sync::AcquireError) -> Self {
+        Error::Network(e.to_string())
+    }
+}
 
 /// Backpressure controller for network operations
 #[async_trait]

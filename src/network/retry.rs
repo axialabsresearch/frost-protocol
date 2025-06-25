@@ -1,9 +1,14 @@
+#![allow(unused_imports)]
+#![allow(unused_variables)]
+#![allow(deprecated)]
+
 use async_trait::async_trait;
 use serde::{Serialize, Deserialize};
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 use rand::Rng;
 use crate::network::NetworkError;
 use crate::Result;
+use crate::error::Error;
 
 /// Retry policy for network operations
 #[async_trait]
@@ -70,7 +75,8 @@ impl DefaultRetryPolicy {
         
         // Add jitter
         let jitter_range = backoff * self.config.jitter_factor;
-        let jitter = rand::thread_rng().gen_range(-jitter_range..jitter_range);
+        let mut rng = rand::thread_rng();
+        let jitter = rng.gen_range(-jitter_range..jitter_range);
         let delay = (backoff + jitter).min(max_delay);
         
         Duration::from_secs_f64(delay)
@@ -154,13 +160,17 @@ where
                 return Ok(result);
             }
             Err(error) => {
-                if let Some(network_error) = error.downcast_ref::<NetworkError>() {
-                    if policy.should_retry(network_error, attempt).await {
-                        let delay = policy.get_delay(attempt).await;
-                        tokio::time::sleep(delay).await;
-                        last_error = Some(error);
-                        continue;
+                match &error {
+                    Error::Network(err_str) => {
+                        let network_error = NetworkError::ConnectionFailed(err_str.clone());
+                        if policy.should_retry(&network_error, attempt).await {
+                            let delay = policy.get_delay(attempt).await;
+                            tokio::time::sleep(delay).await;
+                            last_error = Some(error);
+                            continue;
+                        }
                     }
+                    _ => {}
                 }
                 return Err(last_error.unwrap_or(error));
             }

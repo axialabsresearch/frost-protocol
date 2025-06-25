@@ -1,231 +1,147 @@
-use async_trait::async_trait;
-use frost_protocol::network::*;
-use frost_protocol::Result;
-use std::time::Duration;
-use std::sync::Arc;
+use frost_protocol::{
+    state::BlockRef,
+    finality::{
+        FinalitySignal,
+        EthereumFinalityType,
+        EthereumMetadata,
+        CosmosMetadata,
+        SubstrateMetadata,
+    },
+};
 
-// Mock Transport Implementation
-#[derive(Clone)]
-pub struct MockTransport {
-    state: Arc<parking_lot::RwLock<TransportState>>,
+use std::time::{SystemTime, UNIX_EPOCH};
+
+/// Create a test chain ID
+pub fn test_chain_id(name: &str) -> ChainId {
+    ChainId::new(name)
 }
 
-#[derive(Default)]
-struct TransportState {
-    connected: bool,
-    error_count: u32,
-}
-
-impl MockTransport {
-    pub fn new() -> Self {
-        Self {
-            state: Arc::new(parking_lot::RwLock::new(TransportState::default())),
-        }
-    }
-}
-
-#[async_trait]
-impl Transport for MockTransport {
-    async fn init(&mut self, _config: TransportConfig) -> Result<()> {
-        Ok(())
-    }
-
-    async fn connect(&mut self, _address: &str) -> Result<Peer> {
-        let mut state = self.state.write();
-        state.connected = true;
-        Ok(create_test_peer())
-    }
-
-    async fn disconnect(&mut self, _peer: &Peer) -> Result<()> {
-        let mut state = self.state.write();
-        state.connected = false;
-        Ok(())
-    }
-
-    async fn send_data(&self, _peer: &Peer, data: &[u8]) -> Result<usize> {
-        Ok(data.len())
-    }
-
-    async fn receive_data(&self, _peer: &Peer) -> Result<Vec<u8>> {
-        Ok(vec![1, 2, 3, 4])
-    }
-
-    async fn is_connected(&self, _peer: &Peer) -> bool {
-        self.state.read().connected
-    }
-
-    fn metrics(&self) -> TransportMetrics {
-        TransportMetrics::default()
-    }
-}
-
-// Test Utilities
-pub fn create_test_peer() -> Peer {
-    Peer {
-        id: uuid::Uuid::new_v4(),
-        info: PeerInfo {
-            address: "127.0.0.1:8000".to_string(),
-            protocol_version: "1.0.0".to_string(),
-            supported_features: vec!["basic".to_string()],
-            chain_ids: vec![1],
-            node_type: NodeType::Validator,
-        },
-        state: PeerState::Connected,
-    }
-}
-
-pub fn create_connection_pool(transport: MockTransport) -> impl ConnectionPool {
-    DefaultConnectionPool::new(
-        PoolConfig {
-            min_idle: 5,
-            max_size: 20,
-            max_lifetime: Duration::from_secs(3600),
-            idle_timeout: Duration::from_secs(300),
-            connection_timeout: Duration::from_secs(30),
-            validation_interval: Duration::from_secs(60),
-        },
-        transport,
+/// Create a test block reference
+pub fn test_block_ref(chain_id: &str, number: u64) -> BlockRef {
+    BlockRef::new(
+        chain_id.to_string(),
+        number,
+        [0; 32],
     )
 }
 
-pub fn create_retry_policy() -> impl RetryPolicy {
-    DefaultRetryPolicy::new(RetryConfig {
-        max_attempts: 3,
-        initial_delay: Duration::from_millis(100),
-        max_delay: Duration::from_secs(1),
-        backoff_factor: 2.0,
-        jitter_factor: 0.1,
-        retry_budget: RetryBudget {
-            ttl: Duration::from_secs(60),
-            min_retries: 10,
-            retry_ratio: 0.1,
-        },
-    })
-}
-
-pub fn create_circuit_breaker() -> impl CircuitBreaker {
-    DefaultCircuitBreaker::new(CircuitConfig {
-        failure_threshold: 5,
-        success_threshold: 2,
-        reset_timeout: Duration::from_secs(5),
-        half_open_timeout: Duration::from_secs(1),
-        window_size: Duration::from_secs(60),
-    })
-}
-
-pub fn create_backpressure_controller() -> impl BackpressureController {
-    DefaultBackpressureController::new(BackpressureConfig {
-        max_concurrent_requests: 100,
-        max_queue_size: 1000,
-        pressure_threshold: 0.8,
-        sampling_window: Duration::from_secs(1),
-        decay_factor: 0.95,
-    })
-}
-
-pub fn create_telemetry_manager() -> impl TelemetryManager {
-    let tracer = opentelemetry::trace::Tracer::default();
-    DefaultTelemetryManager::new(tracer)
-}
-
-// Test Scenarios
-pub async fn simulate_message_flow(
-    pool: &impl ConnectionPool,
-    retry: &impl RetryPolicy,
-    telemetry: &impl TelemetryManager,
-    backpressure: &impl BackpressureController,
-    circuit_breaker: &impl CircuitBreaker,
-) -> Result<()> {
-    let peer = create_test_peer();
-    
-    // Get backpressure permit
-    let _permit = backpressure.acquire().await?;
-    
-    // Check circuit breaker
-    if !circuit_breaker.pre_execute().await? {
-        return Err(NetworkError::ConnectionFailed("Circuit breaker open".into()).into());
-    }
-    
-    // Start telemetry span
-    let _span = telemetry.start_span("message_flow").await?;
-    
-    // Acquire connection with retry
-    let conn = with_retry(|| pool.acquire(&peer), retry).await?;
-    
-    // Record success
-    telemetry.record_event(NetworkEvent::Message {
-        message_id: uuid::Uuid::new_v4(),
-        peer: peer.clone(),
-        size: 1024,
-        direction: MessageDirection::Outbound,
-        timestamp: std::time::SystemTime::now(),
-    }).await?;
-    
-    // Release connection
-    pool.release(conn).await?;
-    
-    Ok(())
-}
-
-pub async fn simulate_failing_operation(retry: &impl RetryPolicy) -> Result<()> {
-    with_retry(|| {
-        Err(NetworkError::ConnectionFailed("Simulated failure".into()).into())
-    }, retry).await
-}
-
-pub async fn simulate_failing_operation_with_circuit_breaker(
-    circuit_breaker: &impl CircuitBreaker,
-) -> Result<()> {
-    if !circuit_breaker.pre_execute().await? {
-        return Err(NetworkError::ConnectionFailed("Circuit breaker open".into()).into());
-    }
-    
-    let result = Err(NetworkError::ConnectionFailed("Simulated failure".into()).into());
-    circuit_breaker.post_execute(false).await?;
-    result
-}
-
-pub async fn simulate_successful_operation_with_circuit_breaker(
-    circuit_breaker: &impl CircuitBreaker,
-) -> Result<()> {
-    if !circuit_breaker.pre_execute().await? {
-        return Err(NetworkError::ConnectionFailed("Circuit breaker open".into()).into());
-    }
-    
-    circuit_breaker.post_execute(true).await?;
-    Ok(())
-}
-
-pub async fn simulate_error_scenario(
-    pool: &impl ConnectionPool,
-    retry: &impl RetryPolicy,
-    telemetry: &impl TelemetryManager,
-    circuit_breaker: &impl CircuitBreaker,
-) -> Result<()> {
-    let peer = create_test_peer();
-    
-    // Start telemetry span
-    let _span = telemetry.start_span("error_scenario").await?;
-    
-    // Simulate failure with retry and circuit breaker
-    let result = with_retry(|| {
-        if !circuit_breaker.pre_execute().block_on()? {
-            return Err(NetworkError::ConnectionFailed("Circuit breaker open".into()).into());
+/// Create a test Ethereum finality signal
+pub fn test_ethereum_signal(block_number: u64, confirmations: u64, use_beacon: bool) -> FinalitySignal {
+    if use_beacon {
+        FinalitySignal::Ethereum {
+            block_number,
+            block_hash: [0; 32],
+            confirmations,
+            finality_type: EthereumFinalityType::BeaconFinalized,
+            metadata: Some(EthereumMetadata {
+                beacon_block_root: Some([0; 32]),
+                beacon_slot: Some(block_number * 32),
+                beacon_epoch: Some(block_number),
+                validator_votes: None,
+            }),
         }
-        
-        let result = pool.acquire(&peer).block_on();
-        circuit_breaker.post_execute(result.is_ok()).block_on()?;
-        result
-    }, retry).await;
-    
-    // Record error
-    if let Err(e) = &result {
-        telemetry.record_event(NetworkEvent::Error {
-            error: NetworkError::ConnectionFailed(e.to_string()),
-            context: "error_scenario".into(),
-            timestamp: std::time::SystemTime::now(),
-        }).await?;
+    } else {
+        FinalitySignal::Ethereum {
+            block_number,
+            block_hash: [0; 32],
+            confirmations,
+            finality_type: EthereumFinalityType::Confirmations,
+            metadata: None,
+        }
     }
-    
-    result
+}
+
+/// Create a test Cosmos finality signal
+pub fn test_cosmos_signal(
+    height: u64,
+    round: u32,
+    total_power: u64,
+    signed_power: u64,
+) -> FinalitySignal {
+    FinalitySignal::Cosmos {
+        height,
+        round,
+        block_hash: [0; 32],
+        validator_signatures: vec![[1u8; 64].to_vec()],
+        metadata: Some(CosmosMetadata {
+            total_voting_power: total_power,
+            signed_voting_power: signed_power,
+        }),
+    }
+}
+
+/// Create a test Substrate finality signal
+pub fn test_substrate_signal(
+    block_number: u64,
+    authority_set_id: u64,
+    validator_set_len: u32,
+    signed_precommits: u32,
+    is_parachain: bool,
+) -> FinalitySignal {
+    let parachain_status = if is_parachain {
+        Some(json!({
+            "para_id": 2000,
+            "relay_parent_number": block_number - 1,
+            "relay_parent_hash": [0; 32],
+            "backed_in_blocks": vec![block_number],
+        }))
+    } else {
+        None
+    };
+
+    FinalitySignal::Substrate {
+        block_number,
+        block_hash: [0; 32],
+        justification: vec![1, 2, 3],
+        metadata: Some(SubstrateMetadata {
+            authority_set_id,
+            validator_set_len,
+            signed_precommits,
+            consensus_type: if is_parachain { "parachain" } else { "grandpa" }.to_string(),
+            parachain_status,
+        }),
+    }
+}
+
+/// Get current timestamp in seconds
+pub fn current_timestamp() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
+}
+
+/// Test networks configuration
+pub struct TestNetworks {
+    pub ethereum: ChainId,
+    pub substrate: ChainId,
+    pub cosmos: ChainId,
+}
+
+impl Default for TestNetworks {
+    fn default() -> Self {
+        Self {
+            ethereum: test_chain_id("ethereum"),
+            substrate: test_chain_id("substrate"),
+            cosmos: test_chain_id("cosmos"),
+        }
+    }
+}
+
+/// Create a test block ID
+pub fn test_block_id(number: u64) -> BlockId {
+    BlockId::Composite {
+        number,
+        hash: {
+            let mut hash = [0u8; 32];
+            hash[0..8].copy_from_slice(&number.to_be_bytes());
+            hash
+        },
+    }
+}
+
+/// Assert that two timestamps are close (within margin)
+pub fn assert_timestamps_close(ts1: u64, ts2: u64, margin_secs: u64) {
+    let diff = if ts1 > ts2 { ts1 - ts2 } else { ts2 - ts1 };
+    assert!(diff <= margin_secs, "Timestamps differ by {} seconds, expected <= {}", diff, margin_secs);
 } 

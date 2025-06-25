@@ -1,3 +1,6 @@
+#![allow(unused_imports)]
+#![allow(unused_variables)]
+
 use async_trait::async_trait;
 use crate::message::{FrostMessage, MessageError};
 use crate::Result;

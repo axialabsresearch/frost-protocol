@@ -1,3 +1,7 @@
+#![allow(unused_imports)]
+#![allow(dead_code)]
+#![allow(unused_variables)]
+
 use async_trait::async_trait;
 use std::time::{Duration, SystemTime};
 use std::collections::HashMap;
@@ -143,7 +147,7 @@ impl FinalityMonitor for BasicFinalityMonitor {
             if start.elapsed().unwrap() > timeout {
                 return Err(FinalityError::Timeout {
                     block_ref,
-                    timeout_secs: timeout.as_secs(),
+                    timeout_secs: timeout,
                 });
             }
             
@@ -178,20 +182,38 @@ impl FinalityMonitor for BasicFinalityMonitor {
     ) -> Result<bool, FinalityError> {
         // Implement chain-specific verification logic
         match signal {
-            FinalitySignal::Ethereum { confirmations, .. } => {
+            FinalitySignal::Ethereum { 
+                confirmations,
+                block_number,
+                block_hash,
+                finality_type,
+                metadata,
+                .. 
+            } => {
                 let min_conf = self.config.min_confirmations
                     .get("ethereum")
                     .copied()
                     .unwrap_or(12);
                 Ok(*confirmations >= min_conf)
             }
-            FinalitySignal::Solana { epoch, slot, .. } => {
-                // Implement Solana-specific verification
+            FinalitySignal::Cosmos { 
+                height,
+                block_hash,
+                validator_signatures,
+                metadata,
+                .. 
+            } => {
+                // Implement Cosmos-specific verification
                 Ok(true) // Placeholder
             }
-            FinalitySignal::Substrate { justification, .. } => {
-                // Verify GRANDPA justification
-                Ok(!justification.is_empty()) // Placeholder
+            FinalitySignal::Substrate { 
+                block_number,
+                block_hash,
+                metadata,
+                .. 
+            } => {
+                // Verify Substrate finality proof
+                Ok(true) // Placeholder
             }
             _ => Ok(true), // Placeholder for other chains
         }

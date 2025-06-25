@@ -1,3 +1,5 @@
+#![allow(unused_imports)]
+
 use serde::{Serialize, Deserialize};
 use async_trait::async_trait;
 use crate::state::{ChainId, StateRoot, StateError};

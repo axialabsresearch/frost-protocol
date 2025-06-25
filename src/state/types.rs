@@ -3,7 +3,7 @@ use std::fmt;
 use serde::{Serialize, Deserialize};
 
 /// Chain identifier
-#[derive(Debug, Clone, Hash, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Hash, Eq, PartialEq, Serialize, Deserialize, Ord, PartialOrd)]
 pub struct ChainId(String);
 
 impl ChainId {

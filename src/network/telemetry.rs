@@ -1,10 +1,19 @@
+#![allow(unused_imports)]
+#![allow(unused_variables)]
+
 use async_trait::async_trait;
 use serde::{Serialize, Deserialize};
 use std::time::{Duration, SystemTime};
 use std::collections::HashMap;
-use opentelemetry::trace::{Tracer, Span};
+use opentelemetry::trace::{Status, SpanContext, Tracer, TracerProvider};
+use opentelemetry_sdk::trace::{Span as OtelSpan, SdkTracerProvider};
+use opentelemetry_sdk::trace::TraceResult;
 use crate::network::{Peer, NetworkError};
 use crate::Result;
+use tracing::{span, Level, Span as TracingSpan};
+use tracing_opentelemetry::OpenTelemetryLayer;
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::Registry;
 
 /// Network telemetry manager
 #[async_trait]
@@ -111,9 +120,8 @@ pub struct ErrorMetrics {
 }
 
 /// Telemetry span for tracing
-#[derive(Debug)]
 pub struct TelemetrySpan {
-    span: opentelemetry::trace::Span,
+    span: TracingSpan,
     start_time: SystemTime,
 }
 
@@ -144,14 +152,20 @@ pub struct SpanEvent {
 
 /// Default telemetry implementation
 pub struct DefaultTelemetryManager {
-    tracer: opentelemetry::trace::Tracer,
+    tracer: opentelemetry_sdk::trace::SdkTracerProvider,
     metrics: parking_lot::RwLock<NetworkMetrics>,
     events: parking_lot::RwLock<Vec<NetworkEvent>>,
     spans: parking_lot::RwLock<Vec<SpanData>>,
 }
 
 impl DefaultTelemetryManager {
-    pub fn new(tracer: opentelemetry::trace::Tracer) -> Self {
+    pub fn new(tracer: opentelemetry_sdk::trace::SdkTracerProvider) -> Self {
+        // Set up the OpenTelemetry tracing layer
+        let telemetry = OpenTelemetryLayer::new(tracer.tracer("frost-protocol"));
+        let subscriber = Registry::default().with(telemetry);
+        tracing::subscriber::set_global_default(subscriber)
+            .expect("Failed to set tracing subscriber");
+
         Self {
             tracer,
             metrics: parking_lot::RwLock::new(NetworkMetrics::default()),
@@ -208,14 +222,15 @@ impl TelemetryManager for DefaultTelemetryManager {
     }
 
     async fn start_span(&self, operation: &str) -> Result<TelemetrySpan> {
-        let span = self.tracer
-            .span_builder(operation)
-            .with_start_time(SystemTime::now())
-            .start(&self.tracer);
+        let now = SystemTime::now();
+        let span = tracing::span!(Level::INFO, "operation", name = %operation);
+        span.in_scope(|| {
+            // The span is now the active span
+        });
 
         Ok(TelemetrySpan {
             span,
-            start_time: SystemTime::now(),
+            start_time: now,
         })
     }
 

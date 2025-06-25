@@ -1,8 +1,10 @@
 use async_trait::async_trait;
 use libp2p::{
     kad::{
-        Kademlia, KademliaConfig, KademliaEvent, QueryResult,
-        store::MemoryStore, Record, RecordKey,
+        self,
+        store::MemoryStore,
+        record::{Record, Key as RecordKey},
+        GetClosestPeersOk, GetProvidersOk,
     },
     PeerId, Multiaddr,
 };
@@ -10,8 +12,13 @@ use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use std::collections::HashSet;
 use tokio::sync::mpsc;
-use crate::network::{Peer, NodeIdentity, P2PEvent};
+use crate::network::{Peer, NodeIdentity, NetworkError};
+use crate::network::p2p::P2PEvent;
 use crate::Result;
+use libp2p_kad::{
+    Record,
+    RecordKey,
+};
 
 /// Peer discovery mechanism
 #[async_trait]
@@ -86,10 +93,22 @@ pub enum DiscoveryEvent {
     Error(String),
 }
 
+/// Peer information
+#[derive(Debug, Clone)]
+pub struct PeerInfo {
+    pub peer_id: PeerId,
+    pub addresses: Vec<Multiaddr>,
+    pub protocol_version: String,
+    pub supported_features: Vec<String>,
+    pub chain_ids: Vec<u64>,
+    pub node_type: String,
+    pub last_seen: Option<std::time::SystemTime>,
+}
+
 /// Kademlia-based peer discovery
 pub struct KademliaPeerDiscovery {
     /// Kademlia DHT
-    kad: Kademlia<MemoryStore>,
+    kad: kad::Behaviour<MemoryStore>,
     /// Node identity
     identity: NodeIdentity,
     /// Configuration
@@ -110,14 +129,12 @@ impl KademliaPeerDiscovery {
         event_tx: mpsc::Sender<P2PEvent>,
     ) -> Self {
         let store = MemoryStore::new(identity.peer_id);
-        let kad_config = KademliaConfig::default()
-            .set_replication_interval(config.replication_interval)
+        let kad_config = kad::Config::default()
+            .set_replication_interval(Some(config.replication_interval))
             .set_record_ttl(Some(config.record_ttl))
-            .set_query_timeout(config.query_timeout)
-            .set_max_packet_size(4096)
-            .to_owned();
+            .set_query_timeout(config.query_timeout);
 
-        let kad = Kademlia::with_config(identity.peer_id, store, kad_config);
+        let kad = kad::Behaviour::with_config(identity.peer_id, store, kad_config);
 
         Self {
             kad,
@@ -140,7 +157,7 @@ impl KademliaPeerDiscovery {
 
         // Start bootstrap process
         if let Err(e) = self.kad.bootstrap() {
-            return Err(format!("Failed to bootstrap DHT: {}", e).into());
+            return Err(NetworkError::BootstrapFailed(e.to_string()).into());
         }
 
         self.bootstrapped = true;
@@ -148,30 +165,34 @@ impl KademliaPeerDiscovery {
     }
 
     /// Handle Kademlia events
-    pub async fn handle_event(&mut self, event: KademliaEvent) -> Result<()> {
+    pub async fn handle_event(&mut self, event: kad::Event) -> Result<()> {
         match event {
-            KademliaEvent::OutboundQueryCompleted { result, .. } => {
+            kad::Event::OutboundQueryCompleted { result, .. } => {
                 match result {
-                    QueryResult::Bootstrap(Ok(_)) => {
+                    kad::QueryResult::Bootstrap(Ok(_)) => {
                         // Bootstrap successful
                         self.bootstrapped = true;
                     }
-                    QueryResult::GetClosestPeers(Ok(peers)) => {
-                        for peer in peers {
+                    kad::QueryResult::GetClosestPeers(Ok(ok)) => {
+                        for peer in ok.peers.into_iter() {
                             if !self.known_peers.contains(&peer) {
                                 self.known_peers.insert(peer);
                                 if let Some(addrs) = self.kad.addresses_of_peer(&peer) {
-                                    self.event_tx.send(P2PEvent::PeerConnected(peer)).await?;
+                                    if let Err(e) = self.event_tx.send(P2PEvent::PeerConnected(peer)).await {
+                                        return Err(NetworkError::EventSendFailed(e.to_string()).into());
+                                    }
                                 }
                             }
                         }
                     }
-                    QueryResult::GetProviders(Ok(providers)) => {
-                        for provider in providers.providers {
+                    kad::QueryResult::GetProviders(Ok(ok)) => {
+                        for provider in ok.providers.into_iter() {
                             if !self.known_peers.contains(&provider) {
                                 self.known_peers.insert(provider);
                                 if let Some(addrs) = self.kad.addresses_of_peer(&provider) {
-                                    self.event_tx.send(P2PEvent::PeerConnected(provider)).await?;
+                                    if let Err(e) = self.event_tx.send(P2PEvent::PeerConnected(provider)).await {
+                                        return Err(NetworkError::EventSendFailed(e.to_string()).into());
+                                    }
                                 }
                             }
                         }
@@ -179,12 +200,14 @@ impl KademliaPeerDiscovery {
                     _ => {}
                 }
             }
-            KademliaEvent::RoutingUpdated { peer, .. } => {
+            kad::Event::RoutingUpdated { peer, .. } => {
                 // Update routing table
                 if !self.known_peers.contains(&peer) {
                     self.known_peers.insert(peer);
                     if let Some(addrs) = self.kad.addresses_of_peer(&peer) {
-                        self.event_tx.send(P2PEvent::PeerConnected(peer)).await?;
+                        if let Err(e) = self.event_tx.send(P2PEvent::PeerConnected(peer)).await {
+                            return Err(NetworkError::EventSendFailed(e.to_string()).into());
+                        }
                     }
                 }
             }
@@ -240,64 +263,75 @@ impl KademliaPeerDiscovery {
     }
 
     /// Get Kademlia instance
-    pub fn kademlia(&mut self) -> &mut Kademlia<MemoryStore> {
+    pub fn kademlia(&mut self) -> &mut kad::Behaviour<MemoryStore> {
         &mut self.kad
+    }
+
+    /// Internal method to discover peers
+    async fn discover_peers(&mut self) -> Result<()> {
+        if self.needs_more_peers() {
+            // Start a find_peers query
+            let random_peer_id = PeerId::random();
+            self.kad.get_closest_peers(random_peer_id);
+        }
+        Ok(())
     }
 }
 
 #[async_trait]
-impl crate::network::PeerDiscovery for KademliaPeerDiscovery {
-    async fn discover_peers(&mut self) -> Result<Vec<Peer>> {
-        if self.needs_more_peers() {
-            self.find_peers().await?;
+impl PeerDiscovery for KademliaPeerDiscovery {
+    async fn init(&mut self, config: DiscoveryConfig) -> Result<()> {
+        self.config = config;
+        self.bootstrap().await
         }
 
-        let mut peers = Vec::new();
-        for peer_id in &self.known_peers {
-            if let Some(addrs) = self.kad.addresses_of_peer(peer_id) {
-                peers.push(Peer {
-                    id: uuid::Uuid::new_v4(), // Map PeerId to UUID
-                    info: crate::network::PeerInfo {
-                        address: addrs[0].to_string(),
-                        protocol_version: "1.0.0".to_string(),
-                        supported_features: vec!["kad".to_string()],
-                        chain_ids: vec![],
-                        node_type: crate::network::NodeType::Validator,
-                    },
-                    state: crate::network::PeerState::Connected,
-                });
-            }
+    async fn start_discovery(&mut self) -> Result<()> {
+        if !self.bootstrapped {
+            self.bootstrap().await?;
         }
-
-        Ok(peers)
-    }
-
-    async fn announce(&mut self) -> Result<()> {
-        if self.config.enable_provider_records {
-            let provider_key = RecordKey::new(&self.identity.peer_id.to_bytes());
-            self.kad.start_providing(provider_key)?;
-        }
+        self.discover_peers().await?;
         Ok(())
     }
 
-    async fn get_peers(&self) -> Result<Vec<Peer>> {
+    async fn stop_discovery(&mut self) -> Result<()> {
+        // Stop any ongoing queries
+        self.kad.stop_queries();
+        Ok(())
+    }
+
+    async fn announce(&mut self) -> Result<()> {
+        // Implement announce logic here
+        Ok(())
+    }
+
+    async fn find_peers(&self, _criteria: PeerCriteria) -> Result<Vec<PeerInfo>> {
         let mut peers = Vec::new();
         for peer_id in &self.known_peers {
             if let Some(addrs) = self.kad.addresses_of_peer(peer_id) {
-                peers.push(Peer {
-                    id: uuid::Uuid::new_v4(), // Map PeerId to UUID
-                    info: crate::network::PeerInfo {
-                        address: addrs[0].to_string(),
-                        protocol_version: "1.0.0".to_string(),
-                        supported_features: vec!["kad".to_string()],
-                        chain_ids: vec![],
-                        node_type: crate::network::NodeType::Validator,
-                    },
-                    state: crate::network::PeerState::Connected,
+                peers.push(PeerInfo {
+                    peer_id: *peer_id,
+                    addresses: addrs,
+                    protocol_version: "1.0.0".to_string(), // Default version
+                    supported_features: vec!["kad".to_string()], // Basic Kademlia support
+                    chain_ids: vec![], // No chains by default
+                    node_type: "unknown".to_string(), // Unknown type by default
+                    last_seen: Some(std::time::SystemTime::now()),
                 });
             }
         }
         Ok(peers)
+    }
+
+    fn metrics(&self) -> DiscoveryMetrics {
+        DiscoveryMetrics {
+            discovered_peers: self.known_peers.len() as u64,
+            active_discoveries: 0, // Implement actual tracking
+            last_discovery: None, // Implement actual tracking
+            cached_peers: self.known_peers.len(),
+            successful_announcements: 0, // Implement actual tracking
+            failed_announcements: 0, // Implement actual tracking
+            average_discovery_time: Duration::from_secs(0), // Implement actual tracking
+        }
     }
 }
 

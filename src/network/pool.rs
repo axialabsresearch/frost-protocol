@@ -2,9 +2,12 @@ use async_trait::async_trait;
 use serde::{Serialize, Deserialize};
 use std::time::{Duration, SystemTime};
 use std::collections::HashMap;
-use tokio::sync::Mutex;
-use crate::network::{Peer, NetworkError, Transport};
+use std::sync::Arc;
+use tokio::sync::Mutex;  // Switch back to tokio::sync::Mutex for Send safety
+use crate::network::{Peer, Transport};
+use crate::network::p2p::NetworkError;
 use crate::Result;
+use crate::error::Error;
 
 /// Connection pool manager
 #[async_trait]
@@ -100,7 +103,7 @@ pub enum FailureReason {
 }
 
 /// Enhanced pooled connection with peer metrics
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PooledConnection {
     pub id: uuid::Uuid,
     pub peer: Peer,
@@ -111,6 +114,10 @@ pub struct PooledConnection {
     /// Peer-specific performance metrics
     pub peer_metrics: PeerMetrics,
 }
+
+// Add Send + Sync implementations
+unsafe impl Send for PooledConnection {}
+unsafe impl Sync for PooledConnection {}
 
 /// Connection metrics with enhanced tracking
 #[derive(Debug, Clone, Default)]
@@ -137,6 +144,7 @@ pub struct PoolMetrics {
     pub connection_errors: u64,
     pub average_wait_time: Duration,
     pub peak_connections: usize,
+    pub releases: u64,
     /// Metrics per peer
     pub peer_metrics: HashMap<uuid::Uuid, PeerMetrics>,
     /// Global load factor
@@ -144,23 +152,22 @@ pub struct PoolMetrics {
 }
 
 /// Default connection pool implementation with dynamic sizing
-pub struct DefaultConnectionPool<T: Transport> {
+pub struct DefaultConnectionPool<T: Transport + Send + Sync> {
     config: DynamicPoolConfig,
     transport: T,
-    connections: Mutex<HashMap<uuid::Uuid, PooledConnection>>,
-    metrics: parking_lot::RwLock<PoolMetrics>,
-    /// Per-peer connection limits
-    peer_limits: parking_lot::RwLock<HashMap<uuid::Uuid, usize>>,
+    connections: Arc<Mutex<HashMap<uuid::Uuid, PooledConnection>>>,
+    metrics: Arc<parking_lot::RwLock<PoolMetrics>>,
+    peer_limits: Arc<parking_lot::RwLock<HashMap<uuid::Uuid, usize>>>,
 }
 
-impl<T: Transport> DefaultConnectionPool<T> {
+impl<T: Transport + Send + Sync> DefaultConnectionPool<T> {
     pub fn new(config: DynamicPoolConfig, transport: T) -> Self {
         Self {
             config,
             transport,
-            connections: Mutex::new(HashMap::new()),
-            metrics: parking_lot::RwLock::new(PoolMetrics::default()),
-            peer_limits: parking_lot::RwLock::new(HashMap::new()),
+            connections: Arc::new(Mutex::new(HashMap::new())),
+            metrics: Arc::new(parking_lot::RwLock::new(PoolMetrics::default())),
+            peer_limits: Arc::new(parking_lot::RwLock::new(HashMap::new())),
         }
     }
 
@@ -246,13 +253,15 @@ impl<T: Transport> DefaultConnectionPool<T> {
             peer_metrics: PeerMetrics::default(),
         };
 
-        let mut connections = self.connections.lock().await;
-        connections.insert(connection.id, connection.clone());
+        {
+            let mut guard = self.connections.lock().await;
+            guard.insert(connection.id, connection.clone());
 
-        let mut metrics = self.metrics.write();
-        metrics.total_connections += 1;
-        metrics.idle_connections += 1;
-        metrics.peak_connections = metrics.peak_connections.max(connections.len());
+            let mut metrics = self.metrics.write();
+            metrics.total_connections += 1;
+            metrics.idle_connections += 1;
+            metrics.peak_connections = metrics.peak_connections.max(guard.len());
+        }
 
         Ok(connection)
     }
@@ -278,16 +287,17 @@ fn calculate_reputation(failure_rate: f64, avg_latency: Duration, quality_score:
 }
 
 #[async_trait]
-impl<T: Transport> ConnectionPool for DefaultConnectionPool<T> {
+impl<T: Transport + Send + Sync> ConnectionPool for DefaultConnectionPool<T> {
     async fn acquire(&self, peer: &Peer) -> Result<PooledConnection> {
         let start_time = SystemTime::now();
-        let mut connections = self.connections.lock().await;
         
         // Update peer limits based on performance
         self.adjust_peer_limit(peer).await?;
         
+        let mut guard = self.connections.lock().await;
+        
         // Count current connections for this peer
-        let peer_conn_count = connections.values()
+        let peer_conn_count = guard.values()
             .filter(|c| c.peer.id == peer.id)
             .count();
         
@@ -298,7 +308,7 @@ impl<T: Transport> ConnectionPool for DefaultConnectionPool<T> {
         
         // Try to find an idle connection
         let mut available_connection = None;
-        for conn in connections.values_mut() {
+        for conn in guard.values_mut() {
             if conn.peer.id == peer.id && matches!(conn.status, ConnectionStatus::Idle) {
                 if let Ok(true) = self.validate_connection(conn).await {
                     available_connection = Some(conn.clone());
@@ -316,6 +326,7 @@ impl<T: Transport> ConnectionPool for DefaultConnectionPool<T> {
                         format!("Peer connection limit reached: {}", peer_limit)
                     ).into());
                 }
+                drop(guard); // Drop the lock before creating new connection
                 self.create_connection(peer).await?
             }
         };
@@ -325,13 +336,15 @@ impl<T: Transport> ConnectionPool for DefaultConnectionPool<T> {
         connection.last_used = SystemTime::now();
         
         // Update metrics
-        let mut metrics = self.metrics.write();
-        metrics.connection_requests += 1;
-        metrics.active_connections += 1;
-        metrics.idle_connections -= 1;
-        
-        if let Ok(wait_time) = SystemTime::now().duration_since(start_time) {
-            metrics.average_wait_time = (metrics.average_wait_time + wait_time) / 2;
+        {
+            let mut metrics = self.metrics.write();
+            metrics.connection_requests += 1;
+            metrics.active_connections += 1;
+            metrics.idle_connections -= 1;
+            
+            if let Ok(wait_time) = SystemTime::now().duration_since(start_time) {
+                metrics.average_wait_time = (metrics.average_wait_time + wait_time) / 2;
+            }
         }
         
         // Update peer metrics
@@ -341,21 +354,26 @@ impl<T: Transport> ConnectionPool for DefaultConnectionPool<T> {
     }
 
     async fn release(&self, mut connection: PooledConnection) -> Result<()> {
-        let mut connections = self.connections.lock().await;
-        
         // Update connection state
         connection.status = ConnectionStatus::Idle;
         connection.last_used = SystemTime::now();
         
-        // Update metrics
-        let mut metrics = self.metrics.write();
-        metrics.active_connections -= 1;
-        metrics.idle_connections += 1;
+        // Update metrics before await
+        {
+            let mut metrics = self.metrics.write();
+            metrics.active_connections -= 1;
+            metrics.releases += 1;
+        }
         
-        // Update peer metrics before release
+        // Update peer metrics after dropping lock
         self.update_peer_metrics(&connection).await?;
 
-        connections.insert(connection.id, connection);
+        // Add back to pool
+        {
+            let mut guard = self.connections.lock().await;
+            guard.insert(connection.id, connection);
+        }
+        
         Ok(())
     }
 
@@ -364,56 +382,52 @@ impl<T: Transport> ConnectionPool for DefaultConnectionPool<T> {
     }
 
     async fn cleanup(&self) -> Result<()> {
-        let mut connections = self.connections.lock().await;
         let now = SystemTime::now();
+        let mut to_remove = Vec::new();
         
-        // Remove expired and idle connections while respecting per-peer minimums
-        let mut peer_counts = HashMap::new();
-        
-        // First pass: count connections per peer
-        for conn in connections.values() {
-            *peer_counts.entry(conn.peer.id).or_insert(0) += 1;
+        // First pass: identify connections to remove
+        {
+            let guard = self.connections.lock().await;
+            for (id, conn) in guard.iter() {
+                if let Ok(idle_duration) = now.duration_since(conn.last_used) {
+                    if idle_duration > self.config.base.idle_timeout {
+                        to_remove.push(*id);
+                    }
+                }
+            }
         }
         
-        // Second pass: remove connections if above minimum
-        connections.retain(|_, conn| {
-            let peer_count = peer_counts.get_mut(&conn.peer.id).unwrap();
-            
-            let should_remove = if let Ok(idle_duration) = now.duration_since(conn.last_used) {
-                if idle_duration > self.config.base.idle_timeout {
-                    *peer_count > self.config.base.min_idle_per_peer
-                } else {
-                    false
-                }
-            } else {
-                false
-            };
-            
-            if should_remove {
-                *peer_count -= 1;
-                false
-            } else {
-                true
+        // Second pass: remove connections
+        if !to_remove.is_empty() {
+            let mut guard = self.connections.lock().await;
+            for id in to_remove {
+                guard.remove(&id);
             }
-        });
-
-        // Update metrics
-        let mut metrics = self.metrics.write();
-        metrics.total_connections = connections.len();
-        metrics.idle_connections = connections.values()
-            .filter(|c| matches!(c.status, ConnectionStatus::Idle))
-            .count();
-        metrics.active_connections = connections.values()
-            .filter(|c| matches!(c.status, ConnectionStatus::Active { .. }))
-            .count();
-        
-        // Calculate global load factor
-        metrics.global_load_factor = if metrics.total_connections > 0 {
-            metrics.active_connections as f64 / metrics.total_connections as f64
-        } else {
-            0.0
-        };
+            
+            // Update metrics
+            let mut metrics = self.metrics.write();
+            metrics.total_connections = guard.len();
+            metrics.idle_connections = guard.values()
+                .filter(|c| matches!(c.status, ConnectionStatus::Idle))
+                .count();
+            metrics.active_connections = guard.values()
+                .filter(|c| matches!(c.status, ConnectionStatus::Active { .. }))
+                .count();
+            
+            // Calculate global load factor
+            metrics.global_load_factor = if metrics.total_connections > 0 {
+                metrics.active_connections as f64 / metrics.total_connections as f64
+            } else {
+                0.0
+            };
+        }
 
         Ok(())
+    }
+}
+
+impl From<NetworkError> for Error {
+    fn from(err: NetworkError) -> Self {
+        Error::Network(err.to_string())
     }
 } 

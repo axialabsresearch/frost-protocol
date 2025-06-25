@@ -1,10 +1,13 @@
+#![allow(unused_imports)]
+#![allow(unused_variables)]
+
 use async_trait::async_trait;
 use std::time::Duration;
 use std::collections::HashMap;
 use tracing::{info, warn, error};
 
 use crate::state::BlockRef;
-use crate::finality::{FinalitySignal, FinalityError};
+use crate::finality::{FinalitySignal, FinalityError, EthereumFinalityType};
 
 /// Chain-specific finality configuration
 #[derive(Debug, Clone)]

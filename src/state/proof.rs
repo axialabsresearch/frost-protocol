@@ -1,5 +1,8 @@
+#![allow(unused_imports)]
+#![allow(unused_variables)]
+
 use serde::{Serialize, Deserialize};
-use crate::state::{StateTransition, ProofType};
+use crate::state::{StateTransition, transition::ProofType};
 
 /// Proof for state transitions
 #[derive(Debug, Clone, Serialize, Deserialize)]

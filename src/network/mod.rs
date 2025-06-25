@@ -1,3 +1,6 @@
+#![allow(unused_imports)]
+#![allow(unused_variables)]
+
 mod protocol;
 mod transport;
 mod peer;
@@ -11,7 +14,7 @@ mod retry;
 mod telemetry;
 mod p2p;
 
-pub use protocol::{NetworkProtocol, ProtocolConfig};
+pub use protocol::{NetworkProtocol as ImportedNetworkProtocol, ProtocolConfig};
 pub use transport::{Transport, TransportConfig};
 pub use peer::{Peer, PeerInfo, PeerManager};
 pub use error::NetworkError;
@@ -21,31 +24,31 @@ pub use circuit_breaker::{CircuitBreaker, CircuitConfig, CircuitState};
 pub use backpressure::{BackpressureController, BackpressureConfig, PressureLevel};
 pub use pool::{ConnectionPool, PoolConfig, PooledConnection};
 pub use retry::{RetryPolicy, RetryConfig, with_retry};
-pub use telemetry::{TelemetryManager, NetworkMetrics, NetworkEvent};
+pub use telemetry::{TelemetryManager, NetworkMetrics as ImportedNetworkMetrics, NetworkEvent};
 pub use p2p::{P2PNode, P2PConfig, NodeIdentity};
 
 use crate::Result;
 use async_trait::async_trait;
 use std::error::Error;
-use crate::message::FrostMessage;
+use crate::message::{FrostMessage, MessageType};
 
 /// Network protocol trait
 #[async_trait]
 pub trait NetworkProtocol: Send + Sync {
     /// Start the network protocol
-    async fn start(&mut self) -> Result<(), Box<dyn Error>>;
+    async fn start(&mut self) -> Result<()>;
 
     /// Stop the network protocol
-    async fn stop(&mut self) -> Result<(), Box<dyn Error>>;
+    async fn stop(&mut self) -> Result<()>;
 
     /// Broadcast a message to the network
-    async fn broadcast(&self, message: FrostMessage) -> Result<(), Box<dyn Error>>;
+    async fn broadcast(&self, message: FrostMessage) -> Result<()>;
 
     /// Send a message to a specific peer
-    async fn send_to(&self, peer_id: &str, message: FrostMessage) -> Result<(), Box<dyn Error>>;
+    async fn send_to(&self, peer_id: &str, message: FrostMessage) -> Result<()>;
 
     /// Get connected peers
-    async fn get_peers(&self) -> Result<Vec<String>, Box<dyn Error>>;
+    async fn get_peers(&self) -> Result<Vec<String>>;
 }
 
 /// Basic network configuration
@@ -106,27 +109,27 @@ impl BasicNetwork {
 
 #[async_trait]
 impl NetworkProtocol for BasicNetwork {
-    async fn start(&mut self) -> Result<(), Box<dyn Error>> {
+    async fn start(&mut self) -> Result<()> {
         // Basic startup for v0
         Ok(())
     }
 
-    async fn stop(&mut self) -> Result<(), Box<dyn Error>> {
+    async fn stop(&mut self) -> Result<()> {
         // Basic shutdown for v0
         Ok(())
     }
 
-    async fn broadcast(&self, message: FrostMessage) -> Result<(), Box<dyn Error>> {
+    async fn broadcast(&self, message: FrostMessage) -> Result<()> {
         // Basic broadcast for v0
         Ok(())
     }
 
-    async fn send_to(&self, peer_id: &str, message: FrostMessage) -> Result<(), Box<dyn Error>> {
+    async fn send_to(&self, peer_id: &str, message: FrostMessage) -> Result<()> {
         // Basic send for v0
         Ok(())
     }
 
-    async fn get_peers(&self) -> Result<Vec<String>, Box<dyn Error>> {
+    async fn get_peers(&self) -> Result<Vec<String>> {
         // Basic peer list for v0
         Ok(vec![])
     }
@@ -149,7 +152,7 @@ mod tests {
         assert!(network.stop().await.is_ok());
         
         let message = FrostMessage::new(
-            crate::message::MessageType::Discovery,
+            MessageType::Discovery,
             vec![1, 2, 3],
             "node1".to_string(),
             None,

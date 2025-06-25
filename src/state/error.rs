@@ -1,7 +1,7 @@
 use thiserror::Error;
 use crate::state::BlockRef;
 
-#[derive(Debug, Error)]
+#[derive(Clone, Debug, Error)]
 pub enum StateError {
     #[error("Invalid state transition: {0}")]
     InvalidTransition(String),

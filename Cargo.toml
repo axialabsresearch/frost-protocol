@@ -19,17 +19,48 @@ hex = { version = "0.4", features = ["serde"] }
 subxt = { version = "0.31", features = ["substrate-compat"] }
 codec = { package = "parity-scale-codec", version = "3.6", features = ["derive"] }
 sp-core = { version = "24.0", features = ["full_crypto"] }
-sp-runtime = { version = "24.0", features = ["std"] }
-sp-consensus-babe = "0.27"
-sp-consensus-grandpa = "0.27"
-sp-consensus-aura = "0.27"
-polkadot-primitives = { version = "0.9", features = ["std"] }
+sp-runtime = { version = "41.1", features = ["std"] }
+sp-consensus-babe = "0.42.1"
+sp-consensus-grandpa = "23.1.0"
+sp-consensus-aura = "0.42.0"
+polkadot-primitives = { version = "18.1.0", features = ["std"] }
 parity-scale-codec-derive = "3.6"
 
 # Metrics and monitoring
-metrics = { version = "0.20", features = ["std"] }
+metrics = { version = "0.20" }
 metrics-exporter-prometheus = "0.11"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+parking_lot = "0.12.4"
+libp2p = { version = "0.55.0", features = [
+    "kad",           # For Kademlia DHT
+    "noise",         # For encryption
+    "yamux",         # For multiplexing
+    "tcp",           # For TCP transport
+    "ping",          # For ping protocol
+    "identify",      # For identify protocol
+    "gossipsub",     # For pubsub
+    "tokio",         # For async runtime
+    "dns",           # For DNS resolution
+    "websocket",     # For WebSocket support
+    "macros",        # For NetworkBehaviour derive
+    "request-response", # For request/response protocols
+    "metrics",       # For metrics collection
+    "autonat",       # For NAT traversal
+    "dcutr",         # For direct connection upgrade
+    "relay",         # For relay support
+    "mdns",          # For mDNS discovery
+    "pnet",          # For private networks
+    "rsa",           # For RSA keys
+    "secp256k1",     # For secp256k1 keys
+    "ed25519"        # For Ed25519 keys
+]}
+opentelemetry = { version = "0.30", features = ["trace"] }
+opentelemetry_sdk = { version = "0.30", features = ["trace", "rt-tokio"] }
+rand = "0.9.1"
+futures = "0.3.31"
+tracing-opentelemetry = "0.31.0"
+libp2p-kad = "0.47.0"
+void = "1.0.2"
 
 [dev-dependencies]
 tokio-test = "0.4"

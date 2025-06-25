@@ -135,18 +135,26 @@ impl BasicMessageRouter {
 #[async_trait]
 impl MessageRouter for BasicMessageRouter {
     async fn route_message(&self, message: FrostMessage) -> Result<RouteStatus> {
-        let route = self.get_route(message.from_chain.clone(), message.to_chain.clone()).await?;
+        // Extract source and target chains from message
+        let source_chain = ChainId::new(&message.source);
+        let target_chain = message.target
+            .as_ref()
+            .map(|t| ChainId::new(t))
+            .ok_or_else(|| MessageError::InvalidFormat("Missing target chain".into()))?;
+
+        // Get route between chains
+        let route = self.get_route(source_chain, target_chain).await?;
         
         if route.is_empty() {
             return Err(MessageError::Processing("No valid route found".into()).into());
         }
         
-        if route.len() as u32 > self.config.max_hops {
+        if route.len() > self.config.max_hops as usize {
             return Err(MessageError::Processing("Route exceeds maximum hops".into()).into());
         }
         
         let status = RouteStatus {
-            message_id: message.id,
+            message_id: uuid::Uuid::new_v4(),
             route: route.clone(),
             current_hop: 0,
             estimated_time: std::time::Duration::from_secs(
@@ -155,8 +163,7 @@ impl MessageRouter for BasicMessageRouter {
             state: RouteState::Planning,
         };
         
-        // Store active route
-        self.active_routes.write().await.insert(message.id, status.clone());
+        self.active_routes.write().await.insert(status.message_id, status.clone());
         
         Ok(status)
     }

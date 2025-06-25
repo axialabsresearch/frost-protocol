@@ -1,8 +1,9 @@
+use serde::{Serialize, Deserialize};
 use thiserror::Error;
 use std::io;
 
 /// Network-related errors
-#[derive(Debug, Error)]
+#[derive(Debug, Error, Clone, Serialize, Deserialize)]
 pub enum NetworkError {
     #[error("Connection failed: {0}")]
     ConnectionFailed(String),
@@ -26,7 +27,7 @@ pub enum NetworkError {
     Compression(String),
 
     #[error("IO error: {0}")]
-    Io(#[from] io::Error),
+    Io(String),
 
     #[error("Serialization error: {0}")]
     Serialization(String),

@@ -1,8 +1,11 @@
+#![allow(unused_imports)]
+
 use thiserror::Error;
 use crate::state::BlockRef;
+use std::time::Duration;
 
 /// Finality verification errors
-#[derive(Error, Debug)]
+#[derive(Clone, Error, Debug)]
 pub enum FinalityError {
     /// Invalid finality signal
     #[error("Invalid finality signal: {0}")]
@@ -23,6 +26,12 @@ pub enum FinalityError {
     /// Chain-specific error
     #[error("Chain error: {0}")]
     ChainError(String),
+
+    #[error("Timeout error")]
+    Timeout { 
+        block_ref: BlockRef,
+        timeout_secs: Duration,
+    },
 
     /// Internal error
     #[error("Internal error: {0}")]

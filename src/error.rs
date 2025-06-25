@@ -30,6 +30,18 @@ pub enum Error {
     /// Other error
     #[error("Other error: {0}")]
     Other(String),
+
+    /// Connection denied error
+    #[error("Connection denied error: {0}")]
+    ConnectionDenied(String),
+
+    /// Message processing error
+    #[error("Message processing error: {0}")]
+    MessageProcessing(String),
+
+    /// Generic error with message
+    #[error("Generic error: {0}")]
+    Generic(String),
 }
 
 impl Error {
@@ -43,6 +55,33 @@ impl Error {
             Error::Finality(e) => e.is_retryable(),
             Error::Io(_) => true,
             Error::Other(_) => false,
+            Error::ConnectionDenied(_) => false,
+            Error::MessageProcessing(_) => false,
+            Error::Generic(_) => false,
         }
+    }
+}
+
+impl From<libp2p::swarm::ConnectionDenied> for Error {
+    fn from(err: libp2p::swarm::ConnectionDenied) -> Self {
+        Error::ConnectionDenied(err.to_string())
+    }
+}
+
+impl From<&str> for Error {
+    fn from(s: &str) -> Self {
+        Error::Generic(s.to_string())
+    }
+}
+
+impl From<String> for Error {
+    fn from(s: String) -> Self {
+        Error::Generic(s)
+    }
+}
+
+impl From<crate::message::MessageError> for Error {
+    fn from(err: crate::message::MessageError) -> Self {
+        Error::Message(err.to_string())
     }
 } 

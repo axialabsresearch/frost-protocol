@@ -1,4 +1,5 @@
 use serde::{Serialize, Deserialize};
+use serde_json::Value;
 use crate::state::BlockId;
 
 /// Finality signal from different chains
@@ -38,6 +39,18 @@ pub enum FinalitySignal {
         block_hash: [u8; 32],
         /// Chain metadata
         metadata: Option<SubstrateMetadata>,
+    },
+
+    /// Custom finality signal for other chains
+    Custom {
+        /// Chain ID
+        chain_id: String,
+        /// Block ID
+        block_id: String,
+        /// Proof data
+        proof_data: Vec<u8>,
+        /// Chain-specific metadata
+        metadata: Value,
     },
 }
 
