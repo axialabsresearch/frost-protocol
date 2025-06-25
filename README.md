@@ -64,8 +64,10 @@ FROST consists of four main components:
 
 3. **Network Layer**
    - P2P message routing
-   - Basic peer discovery
-   - Connection management
+   - Kademlia DHT-based peer discovery
+   - Provider record management
+   - Connection management with automatic peer tracking
+   - NAT traversal support
 
 4. **Message Routing**
    - Route discovery
@@ -93,7 +95,31 @@ let config = NetworkConfig {
     bootstrap_peers: vec![],
     protocol_version: 0,
 };
+
+// P2P Configuration with Kademlia DHT
+let p2p_config = P2PConfig {
+    listen_addresses: vec!["0.0.0.0:9000".to_string()],
+    bootstrap_peers: vec!["multiaddr_of_bootstrap_node".to_string()],
+    connection_timeout: Duration::from_secs(30),
+    max_connections: 50,
+    enable_nat: true,
+    enable_mdns: true,
+};
+
+// Initialize P2P node
+let mut node = P2PNode::new(p2p_config).await?;
+node.start().await?;
 ```
+
+## Features
+
+### P2P Networking
+- Kademlia DHT for decentralized peer discovery
+- Provider record management for service advertisement
+- Automatic peer tracking and connection management
+- Support for NAT traversal and mDNS discovery
+- Configurable protocol names and timeouts
+- Metrics for network health monitoring
 
 ## Testing
 
@@ -142,3 +168,121 @@ This project is licensed under the Apache License, Version 2.0.
   - Simple state transitions
   - P2P networking
   - Basic metrics 
+
+## Messaging System
+
+### Message Types
+- **State Transition**: Core state change messages
+- **State Proof**: Verification proofs for state transitions
+- **Finality Signal**: Chain finality notifications
+- **Discovery**: Network peer discovery messages
+- **Custom**: Extensible custom message types
+
+### Message Properties
+- Priority levels (Low, Normal, High, Critical)
+- Metadata support for protocol versioning
+- Chain-specific metadata fields
+- Retry mechanisms for failed messages
+- Custom metadata extension support
+
+### Message Routing
+- Configurable routing strategies
+- Multi-hop message delivery
+- Route discovery and optimization
+- Parallel routing paths
+- Chain-specific routing parameters
+- Route metrics and performance tracking
+
+## Finality System
+
+### Finality Verification
+- Configurable confirmation thresholds
+- Chain-specific finality predicates
+- Confidence-based verification
+- Timeout and evaluation controls
+- Caching of verification results
+
+### Predicate System
+- Custom predicate support
+- Confidence threshold configuration
+- Chain-specific parameters
+- Performance metrics collection
+- Comprehensive error handling
+
+## State Management
+
+### State Transitions
+- Atomic state updates
+- State proof verification
+- Root hash validation
+- Chain-specific state rules
+- State conflict resolution
+
+### State Synchronization
+- Version-based state tracking
+- Conflict detection and resolution
+- Consensus-based reconciliation
+- State timeout handling
+- Validator set management
+
+## Error Handling
+
+### Error Categories
+- **FinalityError**: Finality verification failures
+- **StateError**: State transition issues
+- **NetworkError**: Network communication problems
+- **MessageError**: Message processing failures
+- **RoutingError**: Message routing issues
+
+### Error Features
+- Severity levels (Warning, Error, Critical)
+- Retryable error identification
+- Comprehensive error context
+- Chain-specific error handling
+- Error metrics collection
+
+## Metrics and Monitoring
+
+### Network Metrics
+- Message routing success rates
+- Network topology health
+- Peer connection statistics
+- Protocol performance metrics
+- Latency and throughput tracking
+
+### State Metrics
+- State transition success rates
+- Proof verification performance
+- State synchronization status
+- Consensus participation rates
+- Validator performance tracking
+
+### Finality Metrics
+- Verification success rates
+- Predicate evaluation times
+- Confidence level tracking
+- Chain-specific metrics
+- Timeout and failure tracking
+
+## Advanced Features
+
+### Network Topology
+- Dynamic topology updates
+- Node status tracking
+- Performance-based routing
+- Chain type classification
+- Feature compatibility tracking
+
+### Circuit Breaking
+- Configurable breaker thresholds
+- Automatic failure detection
+- Graceful degradation support
+- Recovery mechanisms
+- Health check integration
+
+### Backpressure Control
+- Dynamic load management
+- Pressure-based throttling
+- Resource utilization tracking
+- Adaptive rate limiting
+- Queue management 
