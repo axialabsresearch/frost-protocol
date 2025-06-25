@@ -31,6 +31,7 @@ use libp2p::{
         dummy,
         ConnectionHandlerEvent,
     },
+    StreamProtocol,
     SwarmBuilder,
     PeerId,
     noise,
@@ -50,6 +51,7 @@ use parking_lot::RwLock;
 use crate::{Result, Error};
 use crate::network::peer::{NodeType, PeerState, Peer};
 use crate::network::transport::TransportMetrics;
+use crate::network::ProtocolConfig;
 use thiserror::Error;
 use void::Void;
 use std::convert::Infallible;
@@ -368,7 +370,21 @@ impl P2PBehaviour {
         );
 
         let store = MemoryStore::new(identity.peer_id);
-        let kad = kad::Behaviour::new(identity.peer_id, store);
+        /* let kad_config = kad::Config::default()
+            .with_protocol_name("/frost/kad/1.0.0")
+            .set_record_ttl(Some(Duration::from_secs(24 * 60 * 60))) // 24 hours
+            .set_publication_interval(Some(Duration::from_secs(12 * 60 * 60))) // 12 hours
+            .set_provider_record_ttl(Some(Duration::from_secs(24 * 60 * 60))) // 24 hours 
+            .set_provider_publication_interval(Some(Duration::from_secs(12 * 60 * 60))); // 12 hours
+        */
+
+        let mut kad_config = kad::Config::new(StreamProtocol::new("/frost/kad/1.0.0"));
+        kad_config.set_record_ttl(Some(Duration::from_secs(24 * 60 * 60))); // 24 hours
+        kad_config.set_publication_interval(Some(Duration::from_secs(12 * 60 * 60))); // 12 hours
+        kad_config.set_provider_record_ttl(Some(Duration::from_secs(24 * 60 * 60))); // 24 hours
+        kad_config.set_provider_publication_interval(Some(Duration::from_secs(12 * 60 * 60))); // 12 hours
+            
+        let kad = kad::Behaviour::with_config(identity.peer_id, store, kad_config);
 
         let gossipsub_config = gossipsub::ConfigBuilder::default()
             .heartbeat_interval(Duration::from_secs(1))
