@@ -3,10 +3,7 @@ use frost_protocol::{
     state::types::BlockId,
     finality::{
         FinalitySignal,
-        EthereumFinalityType,
-        EthereumMetadata,
-        CosmosMetadata,
-        SubstrateMetadata,
+        signal::{EthereumFinalityType, EthereumMetadata, CosmosMetadata, SubstrateMetadata},
     },
 };
 
