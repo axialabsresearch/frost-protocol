@@ -1,5 +1,6 @@
 use frost_protocol::{
-    state::BlockRef,
+    state::{BlockRef, ChainId},
+    state::types::BlockId,
     finality::{
         FinalitySignal,
         EthereumFinalityType,
@@ -9,6 +10,7 @@ use frost_protocol::{
     },
 };
 
+use serde_json::json;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Create a test chain ID
@@ -19,7 +21,7 @@ pub fn test_chain_id(name: &str) -> ChainId {
 /// Create a test block reference
 pub fn test_block_ref(chain_id: &str, number: u64) -> BlockRef {
     BlockRef::new(
-        chain_id.to_string(),
+        ChainId::new(chain_id),
         number,
         [0; 32],
     )
@@ -31,20 +33,20 @@ pub fn test_ethereum_signal(block_number: u64, confirmations: u64, use_beacon: b
         FinalitySignal::Ethereum {
             block_number,
             block_hash: [0; 32],
-            confirmations,
+            confirmations: confirmations as u32,
             finality_type: EthereumFinalityType::BeaconFinalized,
             metadata: Some(EthereumMetadata {
-                beacon_block_root: Some([0; 32]),
-                beacon_slot: Some(block_number * 32),
-                beacon_epoch: Some(block_number),
-                validator_votes: None,
+                current_slot: Some(block_number * 32),
+                head_slot: Some(block_number * 32),
+                active_validators: Some(300_000),
+                total_validators: Some(400_000),
             }),
         }
     } else {
         FinalitySignal::Ethereum {
             block_number,
             block_hash: [0; 32],
-            confirmations,
+            confirmations: confirmations as u32,
             finality_type: EthereumFinalityType::Confirmations,
             metadata: None,
         }
@@ -54,18 +56,17 @@ pub fn test_ethereum_signal(block_number: u64, confirmations: u64, use_beacon: b
 /// Create a test Cosmos finality signal
 pub fn test_cosmos_signal(
     height: u64,
-    round: u32,
+    _round: u32,
     total_power: u64,
     signed_power: u64,
 ) -> FinalitySignal {
     FinalitySignal::Cosmos {
         height,
-        round,
         block_hash: [0; 32],
         validator_signatures: vec![[1u8; 64].to_vec()],
         metadata: Some(CosmosMetadata {
-            total_voting_power: total_power,
-            signed_voting_power: signed_power,
+            voting_power: Some(signed_power),
+            total_power: Some(total_power),
         }),
     }
 }
@@ -73,17 +74,17 @@ pub fn test_cosmos_signal(
 /// Create a test Substrate finality signal
 pub fn test_substrate_signal(
     block_number: u64,
-    authority_set_id: u64,
-    validator_set_len: u32,
-    signed_precommits: u32,
+    _authority_set_id: u64,
+    _validator_set_len: u32,
+    _signed_precommits: u32,
     is_parachain: bool,
 ) -> FinalitySignal {
     let parachain_status = if is_parachain {
         Some(json!({
             "para_id": 2000,
             "relay_parent_number": block_number - 1,
-            "relay_parent_hash": [0; 32],
-            "backed_in_blocks": vec![block_number],
+            "relay_parent_hash": format!("{:?}", [0u8; 32]),
+            "backed_in_blocks": [block_number]
         }))
     } else {
         None
@@ -92,13 +93,11 @@ pub fn test_substrate_signal(
     FinalitySignal::Substrate {
         block_number,
         block_hash: [0; 32],
-        justification: vec![1, 2, 3],
         metadata: Some(SubstrateMetadata {
-            authority_set_id,
-            validator_set_len,
-            signed_precommits,
-            consensus_type: if is_parachain { "parachain" } else { "grandpa" }.to_string(),
-            parachain_status,
+            voting_power: Some(800),
+            total_power: Some(1000),
+            active_validators: Some(150),
+            total_validators: Some(200),
         }),
     }
 }

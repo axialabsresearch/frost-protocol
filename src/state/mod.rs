@@ -1,9 +1,9 @@
 #![allow(unused_imports)]
 
-mod transition;
-mod proof;
-mod types;
-mod error;
+pub mod transition;
+pub mod proof;
+pub mod types;
+pub mod error;
 
 pub use transition::StateTransition as ImportedStateTransition;
 pub use proof::StateProof as ImportedStateProof;

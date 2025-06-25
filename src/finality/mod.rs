@@ -145,7 +145,13 @@ mod error;
 mod monitor;
 
 pub use verifier::{FinalityVerifier, FinalityConfig, BasicMetrics};
-pub use signal::{FinalitySignal, EthereumFinalityType};
+pub use signal::{
+    FinalitySignal,
+    EthereumFinalityType,
+    EthereumMetadata,
+    CosmosMetadata,
+    SubstrateMetadata,
+};
 pub use error::FinalityError;
 pub use monitor::FinalityMonitor;
 
