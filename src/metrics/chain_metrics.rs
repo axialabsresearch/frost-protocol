@@ -110,7 +110,7 @@ impl ChainMetricsCollector for EthereumMetrics {
             size as f64,
             metrics.total_messages
         );
-        
+            
         if !success {
             metrics.failed_messages += 1;
         }
@@ -176,7 +176,7 @@ impl ChainMetricsCollector for CosmosMetrics {
             size as f64,
             metrics.total_messages
         );
-        
+            
         if !success {
             metrics.failed_messages += 1;
         }

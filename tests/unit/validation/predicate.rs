@@ -1,11 +1,9 @@
 #![allow(unused_imports)]
 #![allow(unused_variables)]
 
-
-
 use std::time::Duration;
 use frost_protocol::{
-    state::BlockRef,
+    state::{BlockRef, ChainId},
     finality::{
         FinalitySignal,
         signal::{EthereumFinalityType, EthereumMetadata, CosmosMetadata},
@@ -24,10 +22,19 @@ use frost_protocol::{
         },
     },
 };
-use crate::common::test_block_ref;
+
 use mockall::predicate::*;
 use mockall::mock;
+use async_trait::async_trait;
 
+// I'm bring this here cos, somehow I can't seem to import it from the common module
+pub fn test_block_ref(chain_id: &str, number: u64) -> BlockRef {
+    BlockRef::new(
+        ChainId::new(chain_id),
+        number,
+        [0; 32],
+    )
+}
 
 // Mock finality verification client for testing
 mock! {
@@ -43,6 +50,54 @@ mock! {
         fn verify_block_inclusion(&self, block_ref: &BlockRef, proof: &[u8]) -> Result<bool, FinalityVerificationError>;
         fn get_finality_confidence(&self, block_ref: &BlockRef) -> Result<f64, FinalityVerificationError>;
         fn verify_chain_rules(&self, block_ref: &BlockRef, rules: &ChainRules) -> Result<bool, FinalityVerificationError>;
+    }
+}
+
+// Implement the trait for the mock
+#[async_trait]
+impl FinalityVerificationClient for MockFinalityVerificationClient {
+    async fn get_block(&self, block_ref: &BlockRef) -> Result<Block, FinalityVerificationError> {
+        self.get_block(block_ref)
+    }
+    
+    async fn verify_block_hash(&self, block_ref: &BlockRef) -> Result<bool, FinalityVerificationError> {
+        self.verify_block_hash(block_ref)
+    }
+    
+    async fn get_beacon_block(&self, block_ref: &BlockRef) -> Result<BeaconBlock, FinalityVerificationError> {
+        self.get_beacon_block(block_ref)
+    }
+    
+    async fn is_block_finalized(&self, block_ref: &BlockRef) -> Result<bool, FinalityVerificationError> {
+        self.is_block_finalized(block_ref)
+    }
+    
+    async fn verify_validator_signatures(&self, block_ref: &BlockRef, signatures: &[Vec<u8>]) -> Result<bool, FinalityVerificationError> {
+        self.verify_validator_signatures(block_ref, signatures)
+    }
+    
+    async fn verify_vote_signatures(&self, block_ref: &BlockRef, signatures: &[Vec<u8>]) -> Result<bool, FinalityVerificationError> {
+        self.verify_vote_signatures(block_ref, signatures)
+    }
+    
+    async fn get_latest_finalized_block(&self) -> Result<u64, FinalityVerificationError> {
+        self.get_latest_finalized_block()
+    }
+    
+    async fn get_chain_head(&self) -> Result<BlockRef, FinalityVerificationError> {
+        self.get_chain_head()
+    }
+    
+    async fn verify_block_inclusion(&self, block_ref: &BlockRef, proof: &[u8]) -> Result<bool, FinalityVerificationError> {
+        self.verify_block_inclusion(block_ref, proof)
+    }
+    
+    async fn get_finality_confidence(&self, block_ref: &BlockRef) -> Result<f64, FinalityVerificationError> {
+        self.get_finality_confidence(block_ref)
+    }
+    
+    async fn verify_chain_rules(&self, block_ref: &BlockRef, rules: &ChainRules) -> Result<bool, FinalityVerificationError> {
+        self.verify_chain_rules(block_ref, rules)
     }
 }
 
