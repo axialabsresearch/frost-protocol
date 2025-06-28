@@ -9,15 +9,35 @@
 //! - Message handling and routing
 //! - Network communication
 //! - Error handling and recovery
+//!
+//! FROST Protocol Overview:
+//! FROST acts as a middleware layer that enables secure cross-chain communication
+//! by providing:
+//! 1. Chain-agnostic message routing
+//! 2. Finality verification across different consensus mechanisms
+//! 3. State synchronization between chains
+//! 4. Unified networking layer for cross-chain communication
+//!
+//! This example specifically shows how to:
+//! 1. Transfer assets from Ethereum to Polkadot
+//! 2. Verify finality on both chains
+//! 3. Route messages through the FROST network
+//! 4. Monitor and validate transfer progress
 
+// Bypaasing warninf for tests only!
 #![allow(unused_variables)]
 #![allow(unused_imports)]
+#![allow(dead_code)]
 
+// Standard library imports
 use std::time::{Duration, SystemTime, Instant};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
+
+// FROST Protocol specific imports
 use frost_protocol::{
+    // Finality verification components
     finality::{
         FinalityVerifier,
         FinalityConfig,
@@ -27,15 +47,18 @@ use frost_protocol::{
         FinalitySignal,
         EthereumFinalityType,
     },
+    // State management components
     state::{
         BlockRef,
         ChainId,
     },
+    // Message handling components
     message::{
         FrostMessage,
         MessageType,
         MessageMetadata,
     },
+    // Network layer components
     network::{
         NetworkProtocol,
         NetworkConfig,
@@ -43,12 +66,14 @@ use frost_protocol::{
         PeerInfo,
         NetworkMetrics,
     },
+    // Message routing components
     routing::{
         MessageRouter,
         RoutingConfig,
         BasicRouter,
         RoutingStrategy,
     },
+    // Metrics collection
     metrics::{
         ChainMetrics,
         ChainMetricsCollector,
@@ -56,6 +81,9 @@ use frost_protocol::{
     Result,
     Error,
 };
+
+// Blockchain-specific imports
+// Ethereum and Substrate/Polkadot related dependencies
 use tokio::time;
 use uuid::Uuid;
 use serde_json::Value;
@@ -74,31 +102,31 @@ use hex;
 use polkadot_primitives;
 use subxt::ext::sp_runtime::traits::BlakeTwo256 as SubxtBlakeTwo256;
 
-const TRANSFER_AMOUNT: u128 = 1_000_000_000_000_000_000; // 1 ETH
+// Constants for transfer timing and limits
 const MAX_TRANSFER_TIME: Duration = Duration::from_secs(300);
 
-// Add testnet configuration
+// Testnet configuration
+// These are blockchain-specific settings
 const ETH_TESTNET: &str = "sepolia";
 const DOT_TESTNET: &str = "westend";
-
-// Update the default Sepolia RPC with the actual key
 const DEFAULT_SEPOLIA_RPC: &str = "https://sepolia.infura.io/v3/bfa3b07a10da43d680edfc7e4b5cd79a";
-
-// Add after other const declarations
 const DEFAULT_WESTEND_WS: &str = "wss://westend-rpc.polkadot.io";
 const DEFAULT_ETH_SOURCE_ADDRESS: &str = "0x699415fc86b6A19De25D85eb4c345e2be6A7f253"; 
 const WEI_PER_ETH: u128 = 1_000_000_000_000_000_000; // 1 ETH = 10^18 Wei
 
-// Add retry configuration
+// FROST Protocol retry configuration
 const MAX_RETRIES: u32 = 3;
 const RETRY_DELAY: u64 = 2; // seconds
 
-// Add custom error handling
+// Custom error types for transfer-specific issues
 #[derive(Debug)]
 enum TransferError {
+    // Blockchain-specific errors
     InsufficientBalance { required: u128, available: u128 },
     InsufficientGas { required: u128, available: u128 },
     RpcError(String),
+    
+    // FROST Protocol errors
     NetworkError(String),
     BalanceCheckFailed(String),
 }
@@ -160,21 +188,8 @@ impl From<WestendError> for Error {
     }
 }
 
-fn get_network_endpoints() -> (String, String) {
-    let eth_rpc = env::var("ETH_RPC_URL")
-        .unwrap_or_else(|_| DEFAULT_SEPOLIA_RPC.to_string());
-    let dot_ws = env::var("DOT_WS_URL")
-        .unwrap_or_else(|_| DEFAULT_WESTEND_WS.to_string());
-    (eth_rpc, dot_ws)
-}
-
-fn get_testnet_config() -> [(ChainId, &'static str); 2] {
-    [
-        (ChainId::new("ethereum"), ETH_TESTNET),
-        (ChainId::new("polkadot"), DOT_TESTNET),
-    ]
-}
-
+// FROST Protocol network sharing wrapper
+// This enables thread-safe access to the network layer
 pub struct SharedNetwork(Arc<Mutex<BasicNetwork>>);
 
 impl Clone for SharedNetwork {
@@ -435,19 +450,25 @@ struct AccountData {
     fee_frozen: u128,
 }
 
-// Enhanced transfer state tracking
+// Transfer state tracking for FROST Protocol
 #[derive(Debug, Clone)]
 pub enum TransferState {
+    // Initial state
     Initialized,
+    
+    // FROST Protocol states
     SourceValidated,
     MessageSent { message_id: String },
     RouteDiscovered { route_count: usize },
     InProgress { progress: f32 },
+    
+    // Blockchain-specific states
     TargetValidated,
     Completed { tx_hash: Option<String> },
     Failed { reason: String, retry_count: u32 },
 }
 
+// FROST Protocol transfer monitoring
 #[derive(Debug)]
 pub struct TransferMonitor {
     pub state: TransferState,
@@ -469,12 +490,14 @@ impl TransferMonitor {
         }
     }
 
+    // Update transfer state and log progress
     pub fn update_state(&mut self, new_state: TransferState) {
         self.last_update = Instant::now();
         self.state = new_state;
         println!("Transfer state updated: {:?}", self.state);
     }
 
+    // FROST Protocol retry logic
     pub fn should_retry(&self) -> bool {
         self.retry_count < self.max_retries
     }
@@ -505,7 +528,7 @@ pub async fn check_balance_with_fallback(
     // Try fallback RPCs
     for (i, rpc_url) in fallback_rpcs.iter().enumerate() {
         println!("Trying fallback RPC {}: {}", i + 1, rpc_url);
-        match check_eth_balance(rpc_url, address).await {
+        match check_eth_call(rpc_url, address).await {
             Ok(balance) => {
                 println!("✓ Fallback RPC {} succeeded", i + 1);
                 return Ok(balance);
@@ -523,13 +546,18 @@ pub async fn check_balance_with_fallback(
 
 #[derive(Debug)]
 pub struct TransferValidation {
+    // Ethereum-specific validation fields
     pub eth_balance: u128,
     pub gas_cost: u128,
     pub total_required: u128,
     pub sufficient_funds: bool,
+    
+    // Polkadot/Westend-specific validation fields
     pub westend_connected: bool,
     pub westend_balance: Option<u128>,
     pub recipient_valid: bool,
+    
+    // Error tracking fields
     pub westend_error: Option<String>,
     pub recipient_error: Option<String>,
 }
@@ -620,7 +648,7 @@ pub async fn validate_transfer_preconditions(
     Ok(validation)
 }
 
-// Enhanced transfer execution with better monitoring
+// Main transfer execution function combining FROST Protocol and blockchain operations
 pub async fn execute_monitored_transfer(
     source_chain: ChainId,
     target_chain: ChainId,
@@ -633,6 +661,7 @@ pub async fn execute_monitored_transfer(
 ) -> Result<String> {
     let mut monitor = TransferMonitor::new(3);
     
+    // Retry loop for failed transfers
     loop {
         match execute_transfer_attempt(
             &source_chain,
@@ -652,6 +681,7 @@ pub async fn execute_monitored_transfer(
                 return Ok(tx_hash);
             }
             Err(e) => {
+                // FROST Protocol retry mechanism with exponential backoff
                 if monitor.should_retry() {
                     monitor.increment_retry();
                     monitor.update_state(TransferState::Failed { 
@@ -671,6 +701,7 @@ pub async fn execute_monitored_transfer(
     }
 }
 
+// Single transfer attempt implementation
 async fn execute_transfer_attempt(
     source_chain: &ChainId,
     target_chain: &ChainId,
@@ -682,7 +713,7 @@ async fn execute_transfer_attempt(
     sub_verifier: &SubstrateVerifier,
     monitor: &mut TransferMonitor,
 ) -> Result<String> {
-    // Step 1: Validate source chain state
+    // Step 1: FROST Protocol source chain validation
     monitor.update_state(TransferState::SourceValidated);
     
     let source_block = BlockRef::new(source_chain.clone(), 0, [0u8; 32]);
@@ -694,10 +725,11 @@ async fn execute_transfer_attempt(
         metadata: None,
     };
     
+    // Verify Ethereum finality
     eth_verifier.verify_finality(&source_block, &signal).await
         .map_err(|e| -> Error { TransferError::NetworkError(format!("Source verification failed: {}", e)).into() })?;
 
-    // Step 2: Create and send message
+    // Step 2: Create and send FROST Protocol message
     let message = create_transfer_message(
         source_chain,
         target_chain,
@@ -716,8 +748,9 @@ async fn execute_transfer_attempt(
     let timeout = Duration::from_secs(300);
     let start = Instant::now();
     
+    // Main monitoring loop
     while start.elapsed() < timeout {
-        // Check routes
+        // Check FROST Protocol routes
         let routes = router.get_routes().await
             .map_err(|e| -> Error { TransferError::NetworkError(format!("Route check failed: {}", e)).into() })?;
         
@@ -726,11 +759,11 @@ async fn execute_transfer_attempt(
                 route_count: routes.len() 
             });
 
-            // Calculate progress based on time elapsed
+            // Calculate transfer progress
             let progress = (start.elapsed().as_secs_f32() / timeout.as_secs_f32()).min(0.9);
             monitor.update_state(TransferState::InProgress { progress });
 
-            // Check target chain finality
+            // Verify Polkadot/Substrate finality
             let target_block = BlockRef::new(target_chain.clone(), 0, [0u8; 32]);
             let target_signal = FinalitySignal::Substrate {
                 block_number: 0,
@@ -738,6 +771,7 @@ async fn execute_transfer_attempt(
                 metadata: None,
             };
 
+            // Check target chain state once route is established
             if sub_verifier.verify_finality(&target_block, &target_signal).await.is_ok() {
                 if verify_target_state(&message)? {
                     monitor.update_state(TransferState::TargetValidated);
@@ -754,7 +788,7 @@ async fn execute_transfer_attempt(
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // Initialize logging and metrics
+    // Initialize logging and metrics collection
     tracing_subscriber::fmt::init();
     let metrics = ChainMetrics::default();
     let mut monitor = TransferMonitor::new(3);
@@ -763,7 +797,7 @@ async fn main() -> Result<()> {
     println!("- Ethereum network: {}", ETH_TESTNET);
     println!("- Polkadot network: {}", DOT_TESTNET);
 
-    // Step 1: Initialize Components with testnet configs
+    // Step 1: Initialize FROST Protocol components
     let (
         eth_verifier,
         sub_verifier,
@@ -777,24 +811,25 @@ async fn main() -> Result<()> {
         }
     };
 
-    // Step 2: Set up transfer parameters
+    // Step 2: Set up blockchain-specific parameters
     let source_chain = ChainId::new("ethereum");
     let target_chain = ChainId::new("polkadot");
     let recipient = "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY";
 
-    // Get wallet configuration
+    // Get wallet configuration and validate amounts
     let (source_address, transfer_amount) = get_wallet_config()?;
     println!("Using source address: {}", source_address);
     println!("Transfer amount: {} Wei", transfer_amount);
 
-    // Check balance and estimate gas
+    // Step 3: Perform pre-transfer validation
     let (eth_rpc, dot_ws) = get_network_endpoints();
+    
+    // Check Ethereum balance and gas requirements
     let balance = check_eth_balance(&eth_rpc, &source_address).await?;
-    
     let gas_cost = estimate_gas(&eth_rpc, &source_address, recipient, transfer_amount).await?;
-    
     let total_required = transfer_amount + gas_cost;
     
+    // Validate sufficient funds
     if balance < total_required {
         println!("! Insufficient funds for transfer + gas");
         println!("  Required for transfer: {} Wei", transfer_amount);
@@ -805,14 +840,8 @@ async fn main() -> Result<()> {
         println!("  Please get more test ETH from the Sepolia faucet.");
         return Ok(());
     }
-    
-    println!("✓ Sufficient balance available for transfer + gas");
-    println!("  Transfer amount: {} Wei", transfer_amount);
-    println!("  Gas cost: {} Wei", gas_cost);
-    println!("  Total cost: {} Wei", total_required);
-    println!("  Remaining after transfer: {} Wei", balance - total_required);
 
-    // Check Westend connection and balance first
+    // Step 4: Verify target chain (Westend) setup
     println!("\nVerifying Westend (Polkadot) setup...");
     let westend_client = check_westend_connection(&dot_ws).await?;
     println!("✓ Connected to Westend");
@@ -820,19 +849,19 @@ async fn main() -> Result<()> {
     let westend_balance = check_westend_balance(&westend_client, recipient).await?;
     println!("✓ Westend account verified");
 
-    // Continue with ETH checks and transfer
+    // Step 5: Initialize FROST Protocol transfer
     println!("\nInitiating cross-chain transfer on testnets:");
     println!("From: {} ({}) [{}]", source_chain, ETH_TESTNET, source_address);
     println!("To: {} ({}) [{}]", target_chain, DOT_TESTNET, recipient);
     println!("Amount: {} Wei", transfer_amount);
 
-    // Test connections
+    // Verify RPC connections
     if !test_eth_connection(&eth_rpc).await? {
         println!("! Failed to connect to Sepolia. Please check your RPC endpoint.");
         return Ok(());
     }
 
-    // Step 3: Verify source chain state
+    // Step 6: FROST Protocol finality verification
     println!("\nVerifying source chain state...");
     let source_block = BlockRef::new(source_chain.clone(), 0, [0u8; 32]);
     let signal = FinalitySignal::Ethereum {
@@ -842,11 +871,13 @@ async fn main() -> Result<()> {
         finality_type: EthereumFinalityType::Confirmations,
         metadata: None,
     };
+    
+    // Verify Ethereum finality and source state
     let is_final = eth_verifier.verify_finality(&source_block, &signal).await?;
     let source_state = verify_source_state(transfer_amount)?;
     println!("✓ Source chain state verified");
 
-    // Step 4: Create and send transfer message
+    // Step 7: Create and route FROST Protocol message
     println!("\nCreating transfer message...");
     let message = create_transfer_message(
         &source_chain,
@@ -856,29 +887,31 @@ async fn main() -> Result<()> {
         transfer_amount,
     );
 
-    // Step 5: Discover and select optimal route
+    // Step 8: Route discovery and message sending
     println!("\nDiscovering routes...");
     let routes = router.get_routes().await.map_err(|e| format!("Route error: {}", e))?;
     println!("Found {} possible routes", routes.len());
 
-    // Step 6: Send message and monitor progress
+    // Step 9: Monitor transfer progress
     println!("\nSending transfer message...");
     let mut transfer_complete = false;
     let start_time = time::Instant::now();
 
+    // Generate unique message ID for tracking
     let message_id = Uuid::new_v4().to_string();
     router.route(message.clone()).await
         .map_err(|e| -> Error { TransferError::NetworkError(format!("Message routing failed: {}", e)).into() })?;
     
     monitor.update_state(TransferState::MessageSent { message_id: message_id.clone() });
     
+    // Main monitoring loop
     while !transfer_complete && start_time.elapsed() < MAX_TRANSFER_TIME {
-        // Monitor message progress
+        // Check message routing status
         let routes = router.get_routes().await
             .map_err(|e| -> Error { TransferError::NetworkError(format!("Route check failed: {}", e)).into() })?;
         print_transfer_status(&format!("Active routes: {}", routes.len()));
 
-        // Check target chain state
+        // Verify target chain state when routes are available
         if !routes.is_empty() {
             let target_block = BlockRef::new(target_chain.clone(), 0, [0u8; 32]);
             let signal = FinalitySignal::Substrate {
@@ -886,6 +919,8 @@ async fn main() -> Result<()> {
                 block_hash: [0u8; 32],
                 metadata: None,
             };
+            
+            // Check Polkadot/Substrate finality
             let is_final = sub_verifier.verify_finality(&target_block, &signal).await?;
             if verify_target_state(&message)? {
                 transfer_complete = true;
@@ -897,18 +932,19 @@ async fn main() -> Result<()> {
         time::sleep(Duration::from_secs(5)).await;
     }
 
+    // Handle transfer timeout or failure
     if !transfer_complete {
         println!("! Transfer timed out or failed");
         // Initiate failure recovery...
     }
 
-    // Step 7: Print final metrics
+    // Print final metrics and status
     print_transfer_metrics(&metrics).await?;
 
     Ok(())
 }
 
-/// Initialize all protocol components
+/// Initialize all FROST Protocol components
 async fn initialize_components() -> Result<(
     EthereumVerifier,
     SubstrateVerifier,
@@ -917,7 +953,7 @@ async fn initialize_components() -> Result<(
 )> {
     println!("Starting component initialization...");
     
-    // Initialize finality verifiers
+    // Initialize blockchain-specific finality verifiers
     let eth_config = FinalityConfig {
         min_confirmations: 12,
         finality_timeout: Duration::from_secs(600),
@@ -934,30 +970,32 @@ async fn initialize_components() -> Result<(
     let sub_verifier = SubstrateVerifier::new(sub_config);
     println!("✓ Substrate verifier initialized");
 
-    // Initialize network with local test configuration
+    // Initialize FROST Protocol network layer
     let network_config = NetworkConfig {
         node_id: Uuid::new_v4().to_string(),
         listen_addr: "127.0.0.1:9000".to_string(),
         bootstrap_peers: vec![
-            // For testing, we can start with a single local node
+            // For testing, we use a single local node
             "/ip4/127.0.0.1/tcp/9001/p2p/test-peer-1".to_string(),
         ],
         protocol_version: 1,
     };
+    
     println!("Initializing test network with config:");
     println!("  - Node ID: {}", network_config.node_id);
     println!("  - Listen address: {}", network_config.listen_addr);
     println!("  - Test peer: {:?}", network_config.bootstrap_peers);
     
+    // Create thread-safe network instance
     let network = Arc::new(Mutex::new(BasicNetwork::new(network_config.clone())));
     let shared_network = SharedNetwork(network);
     
-    // Try to start the network and wait for initial peer connections
+    // Start network and wait for peer connections
     let mut network_clone = shared_network.clone();
     network_clone.start().await?;
     println!("✓ Network started");
     
-    // Wait for peer connections with timeout
+    // Attempt peer connections with retry logic
     let mut retry_count = 0;
     let max_retries = 5;
     while retry_count < max_retries {
@@ -978,7 +1016,7 @@ async fn initialize_components() -> Result<(
         println!("! Warning: Failed to connect to any peers after {} attempts", max_retries);
     }
     
-    // Initialize router with more detailed config
+    // Initialize FROST Protocol router
     let router_config = RoutingConfig {
         node_id: network_config.node_id,
         route_timeout: 60,
