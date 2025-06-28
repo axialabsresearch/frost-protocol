@@ -115,7 +115,7 @@ const MAX_TRANSFER_TIME: Duration = Duration::from_secs(300);
 // These are blockchain-specific settings
 const ETH_TESTNET: &str = "sepolia";
 const DOT_TESTNET: &str = "westend";
-const DEFAULT_SEPOLIA_RPC: &str = "https://sepolia.infura.io/v3/bfa3b07a10da43d680edfc7e4b5cd79a";
+const DEFAULT_SEPOLIA_RPC: &str = "https://rpc.sepolia.org";  // Public Sepolia RPC
 const DEFAULT_WESTEND_WS: &str = "wss://westend-rpc.polkadot.io";
 const DEFAULT_ETH_SOURCE_ADDRESS: &str = "0x699415fc86b6A19De25D85eb4c345e2be6A7f253"; 
 const WEI_PER_ETH: u128 = 1_000_000_000_000_000_000; // 1 ETH = 10^18 Wei
@@ -123,6 +123,13 @@ const WEI_PER_ETH: u128 = 1_000_000_000_000_000_000; // 1 ETH = 10^18 Wei
 // FROST Protocol retry configuration
 const MAX_RETRIES: u32 = 3;
 const RETRY_DELAY: u64 = 2; // seconds
+
+// Add after other const declarations
+const ALTERNATIVE_SEPOLIA_RPCS: [&str; 3] = [
+    "https://rpc.sepolia.org",                     // Public RPC
+    "https://rpc2.sepolia.org",                    // Backup Public RPC
+    "https://eth-sepolia.public.blastapi.io",      // Blast API public endpoint
+];
 
 // Custom error types for transfer-specific issues
 #[derive(Debug)]
@@ -1276,8 +1283,19 @@ async fn print_transfer_metrics(metrics: &ChainMetrics) -> Result<()> {
 fn get_network_endpoints() -> Result<(String, String)> {
     // Try environment variables first
     let eth_rpc = match env::var("ETH_RPC_URL") {
-        Ok(url) => url,
+        Ok(url) => {
+            println!("\n[DEBUG] Using ETH_RPC_URL from environment: {}", url);
+            url
+        },
         Err(_) => {
+            println!("\n[DEBUG] No ETH_RPC_URL environment variable found");
+            println!("[DEBUG] Using default Sepolia endpoint: {}", DEFAULT_SEPOLIA_RPC);
+            println!("[DEBUG] ⚠️  Note: Using public RPC endpoint. For better reliability, consider:");
+            println!("  1. Get your own API key from https://infura.io (recommended)");
+            println!("  2. Try alternative public endpoints:");
+            for (i, url) in ALTERNATIVE_SEPOLIA_RPCS.iter().enumerate() {
+                println!("     {}: {}", i + 1, url);
+            }
             println!("No ETH_RPC_URL environment variable found, using default Sepolia endpoint");
             println!("To use custom endpoint, set ETH_RPC_URL environment variable");
             DEFAULT_SEPOLIA_RPC.to_string()
@@ -1287,6 +1305,7 @@ fn get_network_endpoints() -> Result<(String, String)> {
     let dot_ws = match env::var("DOT_WS_URL") {
         Ok(url) => url,
         Err(_) => {
+            println!("[DEBUG] Using default Westend endpoint");
             println!("No DOT_WS_URL environment variable found, using default Westend endpoint");
             println!("To use custom endpoint, set DOT_WS_URL environment variable");
             DEFAULT_WESTEND_WS.to_string()
