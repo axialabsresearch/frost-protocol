@@ -63,9 +63,17 @@ use serde_json::Value;
 use std::env;
 use serde_json::json;
 use subxt::{OnlineClient, Config};
+use subxt::config::Hasher;
+use sp_runtime::traits::Hash; 
+use parity_scale_codec::Encode;
 use codec::Decode;
 use reqwest::{Client, Response};
 use tokio::time::sleep;
+use sp_runtime::traits::BlakeTwo256;
+use sp_core::crypto::Ss58Codec;
+use bs58;
+use hex;
+use polkadot_primitives;
 
 const TRANSFER_AMOUNT: u128 = 1_000_000_000_000_000_000; // 1 ETH
 const MAX_TRANSFER_TIME: Duration = Duration::from_secs(300);
@@ -80,7 +88,7 @@ const DEFAULT_SEPOLIA_RPC: &str = "https://sepolia.infura.io/v3/bfa3b07a10da43d6
 // Add after other const declarations
 const DEFAULT_WESTEND_WS: &str = "wss://westend-rpc.polkadot.io";
 const DEFAULT_ETH_SOURCE_ADDRESS: &str = "0x699415fc86b6A19De25D85eb4c345e2be6A7f253"; 
-const DEFAULT_TRANSFER_AMOUNT: u128 = 100_000_000_000_000_000; // 0.1 ETH for testing
+const WEI_PER_ETH: u128 = 1_000_000_000_000_000_000; // 1 ETH = 10^18 Wei
 
 // Add retry configuration
 const MAX_RETRIES: u32 = 3;
@@ -222,12 +230,19 @@ fn get_wallet_config() -> Result<(String, u128)> {
         return Err("No source address configured".into());
     }
 
-    let amount = env::var("TRANSFER_AMOUNT")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(DEFAULT_TRANSFER_AMOUNT);
+    println!("Enter amount of ETH to transfer (e.g. 0.1): ");
+    let mut input = String::new();
+    std::io::stdin().read_line(&mut input)?;
+    
+    let eth_amount: f64 = input.trim().parse().map_err(|_| "Invalid ETH amount")?;
+    if eth_amount <= 0.0 {
+        return Err("ETH amount must be greater than 0".into());
+    }
+    
+    let wei_amount = (eth_amount * WEI_PER_ETH as f64) as u128;
+    println!("Converting {} ETH to {} Wei", eth_amount, wei_amount);
 
-    Ok((source_address, amount))
+    Ok((source_address, wei_amount))
 }
 
 // Add retry logic helper
@@ -365,8 +380,8 @@ impl Config for WestendConfig {
     type AccountId = sp_runtime::AccountId32;
     type Address = sp_runtime::MultiAddress<Self::AccountId, u32>;
     type Signature = sp_runtime::MultiSignature;
-    type Hasher = sp_core::Hasher;
-    type Header = sp_runtime::generic::Header<u32, sp_runtime::traits::BlakeTwo256>;
+    type Hasher = subxt::config::substrate::BlakeTwo256;
+    type Header = subxt::ext::sp_runtime::generic::Header<u32, Self::Hasher>;
     type ExtrinsicParams = subxt::config::polkadot::PolkadotExtrinsicParams<Self>;
 }
 
@@ -385,8 +400,11 @@ async fn check_westend_balance(
 ) -> Result<u128> {
     println!("Checking Westend balance...");
     
-    let account = sp_core::crypto::Ss58Codec::from_ss58check(address)
+    let bytes = hex::decode(&address[2..])
         .map_err(|e| WestendError::AccountInvalid(format!("Invalid address format: {}", e)))?;
+    let mut arr = [0u8; 32];
+    arr.copy_from_slice(&bytes);
+    let account = subxt::utils::AccountId32::from(arr);
     
     let storage = client.storage().at_latest().await
         .map_err(|e| WestendError::BalanceCheckFailed(e.to_string()))?;
@@ -396,12 +414,11 @@ async fn check_westend_balance(
         .map_err(|e| WestendError::BalanceCheckFailed(e.to_string()))?
         .ok_or_else(|| WestendError::BalanceCheckFailed("Account not found".into()))?;
 
-    let free_balance = balance.to_vec()
-        .map_err(|e| WestendError::BalanceCheckFailed(format!("Failed to decode balance: {}", e)))?;
+    let encoded = balance.encoded();
 
     // Parse the balance (first 16 bytes represent the free balance)
     let mut balance_bytes = [0u8; 16];
-    balance_bytes.copy_from_slice(&free_balance[0..16]);
+    balance_bytes.copy_from_slice(&encoded[0..16]);
     let free_balance = u128::from_le_bytes(balance_bytes);
 
     println!("Current Westend balance: {} WND", 
