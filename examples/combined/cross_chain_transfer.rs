@@ -28,7 +28,7 @@
 //! Please note: This example is not intended for production use. 
 //! It serves as a simplified demonstration of FROST’s core capabilities and cross-chain coordination logic.
 
-// Bypaasing warninf for tests only!
+// Bypaasing warnings for tests only!
 #![allow(unused_variables)]
 #![allow(unused_imports)]
 #![allow(dead_code)]
