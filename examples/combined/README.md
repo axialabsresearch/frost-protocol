@@ -191,9 +191,9 @@ Potential areas for enhancement:
 
 ## Additional Resources
 
-- [FROST Protocol Documentation](https://docs.frostprotocol.com)
-- [Integration Guide](https://docs.frostprotocol.com/guides/integration)
-- [API Reference](https://docs.frostprotocol.com/api/reference)
+- [FROST Protocol Documentation](https://axialabsresearch.github.io/article/frost-v0)
+- [Integration Guide](https://github.com/axialabsresearch/frost-protocol/README.md)
+- [API Reference]()
 
 ## Contributing
 
