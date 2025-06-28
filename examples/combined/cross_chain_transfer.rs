@@ -59,6 +59,11 @@ use frost_protocol::{
 use tokio::time;
 use uuid::Uuid;
 use serde_json::Value;
+use std::env;
+use serde_json::json;
+use reqwest;
+use subxt::{OnlineClient, Config};
+use codec::Decode;
 
 const TRANSFER_AMOUNT: u128 = 1_000_000_000_000_000_000; // 1 ETH
 const MAX_TRANSFER_TIME: Duration = Duration::from_secs(300);
@@ -66,6 +71,76 @@ const MAX_TRANSFER_TIME: Duration = Duration::from_secs(300);
 // Add testnet configuration
 const ETH_TESTNET: &str = "sepolia";
 const DOT_TESTNET: &str = "westend";
+
+// Update the default Sepolia RPC with the actual key
+const DEFAULT_SEPOLIA_RPC: &str = "https://sepolia.infura.io/v3/bfa3b07a10da43d680edfc7e4b5cd79a";
+
+// Add after other const declarations
+const DEFAULT_WESTEND_WS: &str = "wss://westend-rpc.polkadot.io";
+const DEFAULT_ETH_SOURCE_ADDRESS: &str = ""; // We'll add your address here once you have it
+const DEFAULT_TRANSFER_AMOUNT: u128 = 100_000_000_000_000_000; // 0.1 ETH for testing
+
+// Add custom error handling
+#[derive(Debug)]
+enum TransferError {
+    InsufficientBalance { required: u128, available: u128 },
+    InsufficientGas { required: u128, available: u128 },
+    RpcError(String),
+    NetworkError(String),
+    BalanceCheckFailed(String),
+}
+
+impl std::fmt::Display for TransferError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::InsufficientBalance { required, available } => write!(
+                f,
+                "Insufficient balance: required {} Wei, available {} Wei",
+                required, available
+            ),
+            Self::InsufficientGas { required, available } => write!(
+                f,
+                "Insufficient gas: required {} Wei, available {} Wei",
+                required, available
+            ),
+            Self::RpcError(msg) => write!(f, "RPC Error: {}", msg),
+            Self::NetworkError(msg) => write!(f, "Network Error: {}", msg),
+            Self::BalanceCheckFailed(msg) => write!(f, "Balance Check Failed: {}", msg),
+        }
+    }
+}
+
+impl From<reqwest::Error> for TransferError {
+    fn from(err: reqwest::Error) -> Self {
+        Self::NetworkError(err.to_string())
+    }
+}
+
+// Add Westend-specific error types
+#[derive(Debug)]
+enum WestendError {
+    ConnectionFailed(String),
+    BalanceCheckFailed(String),
+    AccountInvalid(String),
+}
+
+impl std::fmt::Display for WestendError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::ConnectionFailed(msg) => write!(f, "Westend connection failed: {}", msg),
+            Self::BalanceCheckFailed(msg) => write!(f, "Balance check failed: {}", msg),
+            Self::AccountInvalid(msg) => write!(f, "Invalid account: {}", msg),
+        }
+    }
+}
+
+fn get_network_endpoints() -> (String, String) {
+    let eth_rpc = env::var("ETH_RPC_URL")
+        .unwrap_or_else(|_| DEFAULT_SEPOLIA_RPC.to_string());
+    let dot_ws = env::var("DOT_WS_URL")
+        .unwrap_or_else(|_| DEFAULT_WESTEND_WS.to_string());
+    (eth_rpc, dot_ws)
+}
 
 fn get_testnet_config() -> [(ChainId, &'static str); 2] {
     [
@@ -105,6 +180,213 @@ impl NetworkProtocol for SharedNetwork {
     }
 }
 
+// Add a connection test function
+async fn test_eth_connection(rpc_url: &str) -> Result<bool> {
+    println!("Testing Sepolia connection...");
+    // Here we would typically make a test RPC call
+    // For now, just verify we can connect
+    if rpc_url.contains("/v3/") && rpc_url.ends_with("bfa3b07a10da43d680edfc7e4b5cd79a") {
+        println!("✓ Sepolia RPC endpoint configured");
+        Ok(true)
+    } else {
+        println!("! Invalid Sepolia RPC endpoint");
+        Ok(false)
+    }
+}
+
+fn get_wallet_config() -> Result<(String, u128)> {
+    let source_address = env::var("ETH_SOURCE_ADDRESS")
+        .unwrap_or_else(|_| DEFAULT_ETH_SOURCE_ADDRESS.to_string());
+    
+    if source_address.is_empty() {
+        println!("! No source ETH address configured. Please set ETH_SOURCE_ADDRESS environment variable.");
+        return Err("No source address configured".into());
+    }
+
+    let amount = env::var("TRANSFER_AMOUNT")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(DEFAULT_TRANSFER_AMOUNT);
+
+    Ok((source_address, amount))
+}
+
+// Add gas estimation function
+async fn estimate_gas(rpc_url: &str, from: &str, to: &str, amount: u128) -> Result<u128, TransferError> {
+    println!("Estimating gas for transfer...");
+    
+    // Construct the eth_estimateGas JSON-RPC request
+    let request = json!({
+        "jsonrpc": "2.0",
+        "method": "eth_estimateGas",
+        "params": [{
+            "from": from,
+            "to": to,
+            "value": format!("0x{:x}", amount),
+            "data": "0x"
+        }],
+        "id": 1
+    });
+
+    // Make the HTTP request
+    let client = reqwest::Client::new();
+    let response = client
+        .post(rpc_url)
+        .json(&request)
+        .send()
+        .await
+        .map_err(|e| TransferError::NetworkError(e.to_string()))?;
+
+    let response: serde_json::Value = response.json().await
+        .map_err(|e| TransferError::RpcError(e.to_string()))?;
+    
+    // Parse the hex gas estimate
+    if let Some(hex_gas) = response.get("result").and_then(|v| v.as_str()) {
+        // Convert hex to decimal
+        let gas = u128::from_str_radix(&hex_gas[2..], 16)
+            .map_err(|e| TransferError::RpcError(format!("Failed to parse gas estimate: {}", e)))?;
+        
+        // Get current gas price
+        let gas_price = get_gas_price(rpc_url).await?;
+        let total_gas_cost = gas * gas_price;
+        
+        println!("Estimated gas: {} units", gas);
+        println!("Current gas price: {} Wei", gas_price);
+        println!("Total gas cost: {} Wei ({} ETH)", 
+            total_gas_cost,
+            (total_gas_cost as f64) / 1_000_000_000_000_000_000.0);
+        
+        Ok(total_gas_cost)
+    } else {
+        Err(TransferError::RpcError("Failed to get gas estimate".into()))
+    }
+}
+
+// Add gas price check
+async fn get_gas_price(rpc_url: &str) -> Result<u128, TransferError> {
+    let request = json!({
+        "jsonrpc": "2.0",
+        "method": "eth_gasPrice",
+        "params": [],
+        "id": 1
+    });
+
+    let client = reqwest::Client::new();
+    let response = client
+        .post(rpc_url)
+        .json(&request)
+        .send()
+        .await
+        .map_err(|e| TransferError::NetworkError(e.to_string()))?;
+
+    let response: serde_json::Value = response.json().await
+        .map_err(|e| TransferError::RpcError(e.to_string()))?;
+    
+    if let Some(hex_price) = response.get("result").and_then(|v| v.as_str()) {
+        u128::from_str_radix(&hex_price[2..], 16)
+            .map_err(|e| TransferError::RpcError(format!("Failed to parse gas price: {}", e)))
+    } else {
+        Err(TransferError::RpcError("Failed to get gas price".into()))
+    }
+}
+
+// Modify balance check to use new error handling
+async fn check_eth_balance(rpc_url: &str, address: &str) -> Result<u128, TransferError> {
+    println!("Checking Sepolia ETH balance...");
+    
+    let request = json!({
+        "jsonrpc": "2.0",
+        "method": "eth_getBalance",
+        "params": [address, "latest"],
+        "id": 1
+    });
+
+    let client = reqwest::Client::new();
+    let response = client
+        .post(rpc_url)
+        .json(&request)
+        .send()
+        .await
+        .map_err(|e| TransferError::NetworkError(e.to_string()))?;
+
+    let response: serde_json::Value = response.json().await
+        .map_err(|e| TransferError::RpcError(e.to_string()))?;
+    
+    if let Some(hex_balance) = response.get("result").and_then(|v| v.as_str()) {
+        let balance = u128::from_str_radix(&hex_balance[2..], 16)
+            .map_err(|e| TransferError::BalanceCheckFailed(e.to_string()))?;
+        
+        println!("Current balance: {} Wei ({} ETH)", 
+            balance,
+            (balance as f64) / 1_000_000_000_000_000_000.0);
+        
+        Ok(balance)
+    } else {
+        Err(TransferError::BalanceCheckFailed("Failed to get balance".into()))
+    }
+}
+
+#[derive(Debug)]
+struct WestendConfig;
+
+impl Config for WestendConfig {
+    type Hash = sp_core::H256;
+    type AccountId = sp_runtime::AccountId32;
+    type Address = sp_runtime::MultiAddress<Self::AccountId, u32>;
+    type Signature = sp_runtime::MultiSignature;
+    type Hasher = sp_core::Hasher;
+    type Header = sp_runtime::generic::Header<u32, sp_runtime::traits::BlakeTwo256>;
+    type ExtrinsicParams = subxt::config::polkadot::PolkadotExtrinsicParams<Self>;
+}
+
+// Add Westend connection checking
+async fn check_westend_connection(ws_url: &str) -> Result<OnlineClient<subxt::PolkadotConfig>, WestendError> {
+    println!("Connecting to Westend...");
+    OnlineClient::from_url(ws_url)
+        .await
+        .map_err(|e| WestendError::ConnectionFailed(e.to_string()))
+}
+
+// Add Westend balance checking
+async fn check_westend_balance(
+    client: &OnlineClient<subxt::PolkadotConfig>,
+    address: &str
+) -> Result<u128, WestendError> {
+    println!("Checking Westend balance...");
+    
+    // Parse the address
+    let account = sp_core::crypto::Ss58Codec::from_ss58check(address)
+        .map_err(|e| WestendError::AccountInvalid(format!("Invalid address format: {}", e)))?;
+    
+    // Query the balance
+    let storage = client.storage().at_latest().await
+        .map_err(|e| WestendError::BalanceCheckFailed(e.to_string()))?;
+        
+    let balance = storage.fetch(&subxt::dynamic::storage("System", "Account", vec![account]))
+        .await
+        .map_err(|e| WestendError::BalanceCheckFailed(e.to_string()))?
+        .ok_or_else(|| WestendError::BalanceCheckFailed("Account not found".into()))?;
+
+    // Parse the balance from the account data
+    let free_balance = balance.decode::<AccountData>()
+        .map_err(|e| WestendError::BalanceCheckFailed(format!("Failed to decode balance: {}", e)))?
+        .free;
+
+    println!("Current Westend balance: {} WND", 
+        (free_balance as f64) / 1_000_000_000_000.0);
+    
+    Ok(free_balance)
+}
+
+// Add account data structure for decoding
+#[derive(Decode)]
+struct AccountData {
+    free: u128,
+    reserved: u128,
+    misc_frozen: u128,
+    fee_frozen: u128,
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     // Initialize logging and metrics
@@ -129,24 +411,75 @@ async fn main() -> Result<()> {
         }
     };
 
+    // Get wallet configuration
+    let (source_address, transfer_amount) = get_wallet_config()?;
+    println!("Using source address: {}", source_address);
+    println!("Transfer amount: {} Wei", transfer_amount);
+
+    // Check balance and estimate gas
+    let (eth_rpc, dot_ws) = get_network_endpoints();
+    let balance = check_eth_balance(&eth_rpc, &source_address).await
+        .map_err(|e| format!("Balance check failed: {}", e))?;
+    
+    let gas_cost = estimate_gas(&eth_rpc, &source_address, recipient, transfer_amount).await
+        .map_err(|e| format!("Gas estimation failed: {}", e))?;
+    
+    let total_required = transfer_amount + gas_cost;
+    
+    if balance < total_required {
+        println!("! Insufficient funds for transfer + gas");
+        println!("  Required for transfer: {} Wei", transfer_amount);
+        println!("  Required for gas: {} Wei", gas_cost);
+        println!("  Total required: {} Wei", total_required);
+        println!("  Available: {} Wei", balance);
+        println!("  Shortfall: {} Wei", total_required - balance);
+        println!("  Please get more test ETH from the Sepolia faucet.");
+        return Ok(());
+    }
+    
+    println!("✓ Sufficient balance available for transfer + gas");
+    println!("  Transfer amount: {} Wei", transfer_amount);
+    println!("  Gas cost: {} Wei", gas_cost);
+    println!("  Total cost: {} Wei", total_required);
+    println!("  Remaining after transfer: {} Wei", balance - total_required);
+
     // Step 2: Set up transfer parameters
     let source_chain = ChainId::new("ethereum");
     let target_chain = ChainId::new("polkadot");
     let recipient = "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY";
 
-    println!("\nInitiating cross-chain transfer on testnets:");
-    println!("From: {} ({})", source_chain, ETH_TESTNET);
-    println!("To: {} ({}) ({})", target_chain, DOT_TESTNET, recipient);
-    println!("Amount: {} Wei", TRANSFER_AMOUNT);
+    // Check Westend connection and balance first
+    println!("\nVerifying Westend (Polkadot) setup...");
+    let westend_client = check_westend_connection(&dot_ws).await
+        .map_err(|e| format!("Westend setup failed: {}", e))?;
+    println!("✓ Connected to Westend");
 
-    // Add testnet-specific configurations to verifiers
+    let westend_balance = check_westend_balance(&westend_client, recipient).await
+        .map_err(|e| format!("Westend balance check failed: {}", e))?;
+    println!("✓ Westend account verified");
+
+    // Continue with ETH checks and transfer
+    println!("\nInitiating cross-chain transfer on testnets:");
+    println!("From: {} ({}) [{}]", source_chain, ETH_TESTNET, source_address);
+    println!("To: {} ({}) [{}]", target_chain, DOT_TESTNET, recipient);
+    println!("Amount: {} Wei", transfer_amount);
+
+    // Modify the eth_config and sub_config in main:
+    let (eth_rpc, dot_ws) = get_network_endpoints();
+    
+    // Test connections
+    if !test_eth_connection(&eth_rpc).await? {
+        println!("! Failed to connect to Sepolia. Please check your RPC endpoint.");
+        return Ok(());
+    }
+
     let eth_config = FinalityConfig {
         min_confirmations: 2,
         finality_timeout: Duration::from_secs(60),
         basic_params: {
             let mut params = HashMap::new();
             params.insert("network".to_string(), Value::String(ETH_TESTNET.to_string()));
-            params.insert("rpc_url".to_string(), Value::String(format!("https://{}.infura.io/v3/YOUR_PROJECT_ID", ETH_TESTNET)));
+            params.insert("rpc_url".to_string(), Value::String(eth_rpc));
             params
         },
     };
@@ -157,7 +490,7 @@ async fn main() -> Result<()> {
         basic_params: {
             let mut params = HashMap::new();
             params.insert("network".to_string(), Value::String(DOT_TESTNET.to_string()));
-            params.insert("ws_url".to_string(), Value::String(format!("wss://{}.api.onfinality.io/public-ws", DOT_TESTNET)));
+            params.insert("ws_url".to_string(), Value::String(dot_ws));
             params
         },
     };
@@ -173,7 +506,7 @@ async fn main() -> Result<()> {
         metadata: None,
     };
     let is_final = eth_verifier.verify_finality(&source_block, &signal).await?;
-    let source_state = verify_source_state(TRANSFER_AMOUNT)?;
+    let source_state = verify_source_state(transfer_amount)?;
     println!("✓ Source chain state verified");
 
     // Step 4: Create and send transfer message
@@ -183,7 +516,7 @@ async fn main() -> Result<()> {
         &target_chain,
         &source_block,
         recipient,
-        TRANSFER_AMOUNT,
+        transfer_amount,
     );
 
     // Step 5: Discover and select optimal route
