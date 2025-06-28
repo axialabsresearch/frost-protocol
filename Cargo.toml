@@ -78,3 +78,59 @@ path = "tests/unit/mod.rs"
 [[test]]
 name = "integration"
 path = "tests/integration/mod.rs"
+
+[[example]]
+name = "ethereum_finality"
+path = "examples/finality/ethereum_finality.rs"
+
+[[example]]
+name = "cosmos_finality"
+path = "examples/finality/cosmos_finality.rs"
+
+[[example]]
+name = "substrate_finality"
+path = "examples/finality/substrate_finality.rs"
+
+[[example]]
+name = "custom_rules"
+path = "examples/finality/custom_rules.rs"
+
+[[example]]
+name = "finality_monitoring"
+path = "examples/finality/finality_monitoring.rs"
+
+[[example]]
+name = "multi_chain"
+path = "examples/finality/multi_chain.rs"
+
+[[example]]
+name = "basic_state"
+path = "examples/state/basic_state.rs"
+
+[[example]]
+name = "chain_reorg"
+path = "examples/state/chain_reorg.rs"
+
+[[example]]
+name = "cross_chain_message"
+path = "examples/message/cross_chain_message.rs"
+
+[[example]]
+name = "p2p_node"
+path = "examples/network/p2p_node.rs"
+
+[[example]]
+name = "message_routing"
+path = "examples/routing/message_routing.rs"
+
+[[example]]
+name = "cross_chain_transfer"
+path = "examples/combined/cross_chain_transfer.rs"
+
+[[example]]
+name = "protocol_monitor"
+path = "examples/monitoring/protocol_monitor.rs"
+
+[[example]]
+name = "custom_chain"
+path = "examples/integration/custom_chain.rs"

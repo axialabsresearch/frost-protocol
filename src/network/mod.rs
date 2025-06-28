@@ -89,6 +89,7 @@ pub struct NetworkMetrics {
 }
 
 /// Basic network implementation
+#[derive(Clone)]
 pub struct BasicNetwork {
     config: NetworkConfig,
     metrics: NetworkMetrics,

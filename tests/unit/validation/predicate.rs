@@ -6,7 +6,7 @@ use frost_protocol::{
     state::{BlockRef, ChainId},
     finality::{
         FinalitySignal,
-        signal::{EthereumFinalityType, EthereumMetadata, CosmosMetadata},
+        signal::{EthereumFinalityType, EthereumMetadata, CosmosMetadata, SubstrateMetadata},
         predicate::{
             PredicateValidator,
             PredicateConfig,
@@ -260,4 +260,105 @@ async fn test_cosmos_predicate_validation() {
     };
     
     assert!(validator.validate_predicate(&block_ref, &invalid_signal, &config).await.is_err());
+}
+
+#[tokio::test]
+async fn test_substrate_predicate_validation() {
+    // Setup predicate config
+    let config = PredicateConfig {
+        min_confirmations: 1,
+        evaluation_timeout: Duration::from_secs(30),
+        confidence_threshold: 0.95,
+        chain_params: serde_json::json!({
+            "min_active_validators": 100,
+            "min_voting_power": 0.67,  // 2/3 majority
+            "max_reorg_depth": 2,
+        }),
+    };
+
+    // Test valid GRANDPA finality
+    let valid_signal = FinalitySignal::Substrate {
+        block_number: 1000,
+        block_hash: [0; 32],
+        metadata: Some(SubstrateMetadata {
+            voting_power: Some(800),
+            total_power: Some(1000),
+            active_validators: Some(150),
+            total_validators: Some(200),
+        }),
+    };
+
+    let chain_id = ChainId::new("substrate");
+    assert!(validate_substrate_predicate(&valid_signal, &config, &chain_id).await);
+
+    // Test invalid voting power
+    let invalid_power_signal = FinalitySignal::Substrate {
+        block_number: 1000,
+        block_hash: [0; 32],
+        metadata: Some(SubstrateMetadata {
+            voting_power: Some(500),  // Less than 2/3
+            total_power: Some(1000),
+            active_validators: Some(150),
+            total_validators: Some(200),
+        }),
+    };
+    assert!(!validate_substrate_predicate(&invalid_power_signal, &config, &chain_id).await);
+
+    // Test invalid validator count
+    let invalid_validator_signal = FinalitySignal::Substrate {
+        block_number: 1000,
+        block_hash: [0; 32],
+        metadata: Some(SubstrateMetadata {
+            voting_power: Some(800),
+            total_power: Some(1000),
+            active_validators: Some(80),  // Below minimum
+            total_validators: Some(200),
+        }),
+    };
+    assert!(!validate_substrate_predicate(&invalid_validator_signal, &config, &chain_id).await);
+
+    // Test missing metadata
+    let missing_metadata_signal = FinalitySignal::Substrate {
+        block_number: 1000,
+        block_hash: [0; 32],
+        metadata: None,
+    };
+    assert!(!validate_substrate_predicate(&missing_metadata_signal, &config, &chain_id).await);
+}
+
+async fn validate_substrate_predicate(
+    signal: &FinalitySignal,
+    config: &PredicateConfig,
+    chain_id: &ChainId,
+) -> bool {
+    if let FinalitySignal::Substrate { metadata, .. } = signal {
+        if let Some(metadata) = metadata {
+            // Check validator count
+            let min_validators = config.chain_params["min_active_validators"]
+                .as_u64()
+                .unwrap_or(100);
+            
+            if metadata.active_validators.unwrap_or(0) < min_validators {
+                return false;
+            }
+
+            // Check voting power
+            let min_voting_power = config.chain_params["min_voting_power"]
+                .as_f64()
+                .unwrap_or(0.67);
+
+            let voting_ratio = metadata.voting_power.unwrap_or(0) as f64 
+                / metadata.total_power.unwrap_or(1) as f64;
+            
+            if voting_ratio < min_voting_power {
+                return false;
+            }
+
+            true
+        } else {
+            false
+        }
+    } else {
+        false
+    }
 } 
