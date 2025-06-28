@@ -17,6 +17,7 @@
 use std::time::{Duration, SystemTime};
 use std::collections::HashMap;
 use std::sync::Arc;
+use tokio::sync::Mutex;
 use frost_protocol::{
     finality::{
         FinalityVerifier,
@@ -57,11 +58,23 @@ use frost_protocol::{
 };
 use tokio::time;
 use uuid::Uuid;
+use serde_json::Value;
 
 const TRANSFER_AMOUNT: u128 = 1_000_000_000_000_000_000; // 1 ETH
 const MAX_TRANSFER_TIME: Duration = Duration::from_secs(300);
 
-struct SharedNetwork(Arc<BasicNetwork>);
+// Add testnet configuration
+const ETH_TESTNET: &str = "sepolia";
+const DOT_TESTNET: &str = "westend";
+
+fn get_testnet_config() -> [(ChainId, &'static str); 2] {
+    [
+        (ChainId::new("ethereum"), ETH_TESTNET),
+        (ChainId::new("polkadot"), DOT_TESTNET),
+    ]
+}
+
+struct SharedNetwork(Arc<Mutex<BasicNetwork>>);
 
 impl Clone for SharedNetwork {
     fn clone(&self) -> Self {
@@ -72,23 +85,23 @@ impl Clone for SharedNetwork {
 #[async_trait::async_trait]
 impl NetworkProtocol for SharedNetwork {
     async fn start(&mut self) -> Result<()> {
-        Arc::get_mut(&mut self.0).unwrap().start().await
+        self.0.lock().await.start().await
     }
 
     async fn stop(&mut self) -> Result<()> {
-        Arc::get_mut(&mut self.0).unwrap().stop().await
+        self.0.lock().await.stop().await
     }
 
     async fn broadcast(&self, message: FrostMessage) -> Result<()> {
-        (*self.0).broadcast(message).await
+        self.0.lock().await.broadcast(message).await
     }
 
     async fn send_to(&self, peer_id: &str, message: FrostMessage) -> Result<()> {
-        (*self.0).send_to(peer_id, message).await
+        self.0.lock().await.send_to(peer_id, message).await
     }
 
     async fn get_peers(&self) -> Result<Vec<String>> {
-        (*self.0).get_peers().await
+        self.0.lock().await.get_peers().await
     }
 }
 
@@ -98,24 +111,56 @@ async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
     let metrics = ChainMetrics::default();
 
-    // Step 1: Initialize Components
-    println!("\nInitializing protocol components...");
+    println!("\nInitializing protocol components on testnets:");
+    println!("- Ethereum network: {}", ETH_TESTNET);
+    println!("- Polkadot network: {}", DOT_TESTNET);
+
+    // Step 1: Initialize Components with testnet configs
     let (
         eth_verifier,
         sub_verifier,
         network,
         router
-    ) = initialize_components().await?;
+    ) = match initialize_components().await {
+        Ok(components) => components,
+        Err(e) => {
+            println!("Failed to initialize components: {}", e);
+            return Err(e);
+        }
+    };
 
     // Step 2: Set up transfer parameters
     let source_chain = ChainId::new("ethereum");
     let target_chain = ChainId::new("polkadot");
     let recipient = "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY";
 
-    println!("\nInitiating cross-chain transfer:");
-    println!("From: {}", source_chain);
-    println!("To: {} ({})", target_chain, recipient);
-    println!("Amount: {} ETH", TRANSFER_AMOUNT);
+    println!("\nInitiating cross-chain transfer on testnets:");
+    println!("From: {} ({})", source_chain, ETH_TESTNET);
+    println!("To: {} ({}) ({})", target_chain, DOT_TESTNET, recipient);
+    println!("Amount: {} Wei", TRANSFER_AMOUNT);
+
+    // Add testnet-specific configurations to verifiers
+    let eth_config = FinalityConfig {
+        min_confirmations: 2,
+        finality_timeout: Duration::from_secs(60),
+        basic_params: {
+            let mut params = HashMap::new();
+            params.insert("network".to_string(), Value::String(ETH_TESTNET.to_string()));
+            params.insert("rpc_url".to_string(), Value::String(format!("https://{}.infura.io/v3/YOUR_PROJECT_ID", ETH_TESTNET)));
+            params
+        },
+    };
+
+    let sub_config = FinalityConfig {
+        min_confirmations: 1,
+        finality_timeout: Duration::from_secs(60),
+        basic_params: {
+            let mut params = HashMap::new();
+            params.insert("network".to_string(), Value::String(DOT_TESTNET.to_string()));
+            params.insert("ws_url".to_string(), Value::String(format!("wss://{}.api.onfinality.io/public-ws", DOT_TESTNET)));
+            params
+        },
+    };
 
     // Step 3: Verify source chain state
     println!("\nVerifying source chain state...");
@@ -195,40 +240,77 @@ async fn initialize_components() -> Result<(
     SharedNetwork,
     BasicRouter<SharedNetwork>,
 )> {
+    println!("Starting component initialization...");
+    
     // Initialize finality verifiers
     let eth_config = FinalityConfig {
-        min_confirmations: 12,  // ~3 minutes for Ethereum
+        min_confirmations: 12,
         finality_timeout: Duration::from_secs(600),
         basic_params: HashMap::new(),
     };
     let eth_verifier = EthereumVerifier::new(eth_config);
+    println!("✓ Ethereum verifier initialized");
 
     let sub_config = FinalityConfig {
-        min_confirmations: 1,   // GRANDPA provides instant finality
+        min_confirmations: 1,
         finality_timeout: Duration::from_secs(300),
         basic_params: HashMap::new(),
     };
     let sub_verifier = SubstrateVerifier::new(sub_config);
+    println!("✓ Substrate verifier initialized");
 
-    // Initialize network
+    // Initialize network with local test configuration
     let network_config = NetworkConfig {
         node_id: Uuid::new_v4().to_string(),
-        listen_addr: "0.0.0.0:0".to_string(),
+        listen_addr: "127.0.0.1:9000".to_string(),
         bootstrap_peers: vec![
-            "/dns4/bootstrap.frost.network/tcp/443/p2p/QmBootstrap1".to_string(),
+            // For testing, we can start with a single local node
+            "/ip4/127.0.0.1/tcp/9001/p2p/test-peer-1".to_string(),
         ],
         protocol_version: 1,
     };
-    let network = Arc::new(BasicNetwork::new(network_config));
+    println!("Initializing test network with config:");
+    println!("  - Node ID: {}", network_config.node_id);
+    println!("  - Listen address: {}", network_config.listen_addr);
+    println!("  - Test peer: {:?}", network_config.bootstrap_peers);
+    
+    let network = Arc::new(Mutex::new(BasicNetwork::new(network_config.clone())));
     let shared_network = SharedNetwork(network);
+    
+    // Try to start the network and wait for initial peer connections
+    let mut network_clone = shared_network.clone();
+    network_clone.start().await?;
+    println!("✓ Network started");
+    
+    // Wait for peer connections with timeout
+    let mut retry_count = 0;
+    let max_retries = 5;
+    while retry_count < max_retries {
+        println!("Attempting to connect to peers (attempt {}/{})", retry_count + 1, max_retries);
+        let peers = shared_network.get_peers().await?;
+        if !peers.is_empty() {
+            println!("✓ Connected to {} peers", peers.len());
+            break;
+        }
+        retry_count += 1;
+        if retry_count < max_retries {
+            println!("No peers found. Retrying in 5 seconds...");
+            time::sleep(Duration::from_secs(5)).await;
+        }
+    }
 
-    // Initialize router
+    if retry_count >= max_retries {
+        println!("! Warning: Failed to connect to any peers after {} attempts", max_retries);
+    }
+    
+    // Initialize router with more detailed config
     let router_config = RoutingConfig {
-        node_id: "node1".to_string(),
+        node_id: network_config.node_id,
         route_timeout: 60,
         max_routes: 1000,
     };
     let router = BasicRouter::new(router_config, shared_network.clone());
+    println!("✓ Router initialized");
 
     Ok((
         eth_verifier,
