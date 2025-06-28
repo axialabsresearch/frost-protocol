@@ -63,7 +63,7 @@
 //! 
 //! ```rust
 //! use frost_protocol::routing::{RoutingConfig, BasicRouter};
-//! use frost_protocol::network::BasicNetwork;
+//! use frost_protocol::network::{NetworkConfig, BasicNetwork};
 //! 
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! let config = RoutingConfig::default();
@@ -117,7 +117,7 @@ pub mod metrics;
 pub use finality::{FinalitySignal, FinalityMonitor};
 pub use message::{FrostMessage, MessageType};
 pub use state::{StateTransition, StateProof};
-pub use network::NetworkProtocol;
+pub use network::{NetworkProtocol, NetworkConfig, BasicNetwork};
 pub use routing::MessageRouter;
 
 // Core types

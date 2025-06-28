@@ -112,7 +112,7 @@
 //!     FinalityVerifier,
 //!     FinalitySignal,
 //! };
-//! use frost_protocol::state::BlockRef;
+//! use frost_protocol::state::{BlockRef, ChainId};
 //! 
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! // Create verifier
@@ -129,7 +129,8 @@
 //! };
 //! 
 //! // Verify finality
-//! let block_ref = BlockRef::new("eth", 100);
+//! let chain_id = ChainId::new("ethereum");
+//! let block_ref = BlockRef::new(chain_id, 100, [0u8; 32]);
 //! let is_final = verifier.verify_finality(&block_ref, &signal).await?;
 //! 
 //! // Check metrics

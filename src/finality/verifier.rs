@@ -23,6 +23,16 @@ pub struct FinalityConfig {
     pub basic_params: HashMap<String, serde_json::Value>,
 }
 
+impl Default for FinalityConfig {
+    fn default() -> Self {
+        Self {
+            min_confirmations: 6,  // Default to 6 confirmations
+            finality_timeout: Duration::from_secs(30),  // Default 30 second timeout
+            basic_params: HashMap::new(),
+        }
+    }
+}
+
 /// Basic finality metrics
 #[derive(Debug, Clone, Default)]
 pub struct BasicMetrics {

@@ -42,7 +42,7 @@ pub enum StateError {
     #[error("Invalid block reference: {0}")]
     InvalidBlockRef(String),
 
-    #[error("State root mismatch for block {block_ref:?}: expected {expected}, got {actual}")]
+    #[error("State root mismatch for block {block_ref}: expected {expected}, got {actual}")]
     RootMismatch {
         block_ref: BlockRef,
         expected: String,
