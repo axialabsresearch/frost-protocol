@@ -26,7 +26,7 @@
 //! 5. Handle errors and retries correctly
 //! 
 //! Please note: This example is not intended for production use. 
-//! It serves as a simplified demonstration of FROST’s core capabilities and cross-chain coordination logic.
+//! It serves as a simplified demonstration of FROST's core capabilities and cross-chain coordination logic.
 
 // Bypaasing warnings for tests only!
 #![allow(unused_variables)]
@@ -792,6 +792,45 @@ async fn execute_transfer_attempt(
     Err(TransferError::NetworkError("Transfer timeout".to_string()).into())
 }
 
+/// Check if dry run mode is enabled
+fn is_dry_run() -> bool {
+    env::args().any(|arg| arg == "--dry-run")
+}
+
+/// Print dry run information
+fn print_dry_run_info(config: &CrossChainConfig, eth_rpc: &str, dot_ws: &str) {
+    println!("\n=== DRY RUN MODE ===");
+    println!("\nNetwork Configuration:");
+    println!("Ethereum RPC: {}", eth_rpc);
+    println!("Polkadot WS: {}", dot_ws);
+    
+    println!("\nChain Settings:");
+    println!("Ethereum:");
+    println!("  - Network: {}", ETH_TESTNET);
+    println!("  - Min Confirmations: {}", config.chain.eth_min_confirmations);
+    println!("  - Max Gas Price: {} Gwei", config.chain.eth_max_gas_price);
+    println!("  - Gas Limit: {}", config.chain.eth_gas_limit);
+    
+    println!("\nPolkadot:");
+    println!("  - Network: {}", DOT_TESTNET);
+    println!("  - Min Confirmations: {}", config.chain.dot_min_confirmations);
+    println!("  - Existential Deposit: {} Planck", config.chain.dot_existential_deposit);
+    
+    println!("\nTransfer Limits:");
+    println!("  - Minimum: {} ETH/DOT", config.transfer.min_amount);
+    println!("  - Maximum: {} ETH/DOT", config.transfer.max_amount);
+    println!("  - Timeout: {}s", config.transfer.timeout_secs);
+    println!("  - Max Routes: {}", config.transfer.max_routes);
+    
+    println!("\nSecurity Paths:");
+    println!("  - ETH Key: {}", config.security.eth_private_key_path.display());
+    println!("  - DOT Seed: {}", config.security.dot_seed_path.display());
+    
+    println!("\nNo actual transfers will be performed in dry run mode.");
+    println!("===================\n");
+}
+
+// Update the main function to support dry run
 #[tokio::main]
 async fn main() -> Result<()> {
     // Initialize logging and metrics collection
@@ -803,6 +842,17 @@ async fn main() -> Result<()> {
     println!("Loading configuration...");
     let config = CrossChainConfig::from_env()?;
     config.validate()?;
+    
+    // Get network endpoints
+    let (eth_rpc, dot_ws) = get_network_endpoints()?;
+
+    // Check for dry run mode
+    if is_dry_run() {
+        print_dry_run_info(&config, &eth_rpc, &dot_ws);
+        return Ok(());
+    }
+
+    // Continue with existing main function code...
     config.print_config();
 
     println!("\nInitializing protocol components on testnets:");
@@ -1127,7 +1177,7 @@ async fn initialize_components() -> Result<(
     // Create thread-safe network instance
     let network = Arc::new(Mutex::new(BasicNetwork::new(network_config.clone())));
     let shared_network = SharedNetwork(network);
-    
+
     // Start network and wait for peer connections
     let mut network_clone = shared_network.clone();
     network_clone.start().await?;
