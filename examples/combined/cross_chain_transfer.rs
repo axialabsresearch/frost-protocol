@@ -18,11 +18,15 @@
 //! 3. State synchronization between chains
 //! 4. Unified networking layer for cross-chain communication
 //!
-//! This example specifically shows how to:
-//! 1. Transfer assets from Ethereum to Polkadot
-//! 2. Verify finality on both chains
-//! 3. Route messages through the FROST network
+//! This example specifically shows, though simplified, shows how FROST coult practically:
+//! 1. Transfer assets between 2 heterogenous chains, Ethereum to Polkadot in this example
+//! 2. Verify finality on both chains, Ethereum and Polkadot in this example
+//! 3. Route messages through, FROST's network module
 //! 4. Monitor and validate transfer progress
+//! 5. Handle errors and retries correctly
+//! 
+//! Please note: This example is not intended for production use. 
+//! It serves as a simplified demonstration of FROST’s core capabilities and cross-chain coordination logic.
 
 // Bypaasing warninf for tests only!
 #![allow(unused_variables)]
