@@ -696,7 +696,7 @@ async fn execute_transfer_attempt(
     };
     
     eth_verifier.verify_finality(&source_block, &signal).await
-        .map_err(|e| TransferError::NetworkError(format!("Source verification failed: {}", e)).into())?;
+        .map_err(|e| -> Error { TransferError::NetworkError(format!("Source verification failed: {}", e)).into() })?;
 
     // Step 2: Create and send message
     let message = create_transfer_message(
@@ -707,11 +707,11 @@ async fn execute_transfer_attempt(
         amount,
     );
 
-    let message_id = router.route(message.clone()).await
-        .map_err(|e| TransferError::NetworkError(format!("Message routing failed: {}", e)).into())?;
+    let message_id = Uuid::new_v4().to_string();
+    router.route(message.clone()).await
+        .map_err(|e| -> Error { TransferError::NetworkError(format!("Message routing failed: {}", e)).into() })?;
     
-    let message_id_str = message_id.to_string();
-    monitor.update_state(TransferState::MessageSent { message_id: message_id_str.clone() });
+    monitor.update_state(TransferState::MessageSent { message_id: message_id.clone() });
 
     // Step 3: Monitor progress with timeout
     let timeout = Duration::from_secs(300);
@@ -720,7 +720,7 @@ async fn execute_transfer_attempt(
     while start.elapsed() < timeout {
         // Check routes
         let routes = router.get_routes().await
-            .map_err(|e| TransferError::NetworkError(format!("Route check failed: {}", e)).into())?;
+            .map_err(|e| -> Error { TransferError::NetworkError(format!("Route check failed: {}", e)).into() })?;
         
         if !routes.is_empty() {
             monitor.update_state(TransferState::RouteDiscovered { 
@@ -742,7 +742,7 @@ async fn execute_transfer_attempt(
             if sub_verifier.verify_finality(&target_block, &target_signal).await.is_ok() {
                 if verify_target_state(&message)? {
                     monitor.update_state(TransferState::TargetValidated);
-                    return Ok(format!("transfer_{}", message_id_str));
+                    return Ok(format!("transfer_{}", message_id));
                 }
             }
         }
@@ -758,6 +758,7 @@ async fn main() -> Result<()> {
     // Initialize logging and metrics
     tracing_subscriber::fmt::init();
     let metrics = ChainMetrics::default();
+    let mut monitor = TransferMonitor::new(3);
 
     println!("\nInitializing protocol components on testnets:");
     println!("- Ethereum network: {}", ETH_TESTNET);
@@ -866,11 +867,16 @@ async fn main() -> Result<()> {
     let mut transfer_complete = false;
     let start_time = time::Instant::now();
 
-    let message_id = router.route(message.clone()).await.map_err(|e| format!("Routing error: {}", e))?;
+    let message_id = Uuid::new_v4().to_string();
+    router.route(message.clone()).await
+        .map_err(|e| -> Error { TransferError::NetworkError(format!("Message routing failed: {}", e)).into() })?;
+    
+    monitor.update_state(TransferState::MessageSent { message_id: message_id.clone() });
     
     while !transfer_complete && start_time.elapsed() < MAX_TRANSFER_TIME {
         // Monitor message progress
-        let routes = router.get_routes().await.map_err(|e| format!("Status error: {}", e))?;
+        let routes = router.get_routes().await
+            .map_err(|e| -> Error { TransferError::NetworkError(format!("Route check failed: {}", e)).into() })?;
         print_transfer_status(&format!("Active routes: {}", routes.len()));
 
         // Check target chain state
