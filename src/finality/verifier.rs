@@ -1,6 +1,9 @@
 #![allow(unused_imports)]
 #![allow(unused_variables)]
 
+// please handle as soon as possible 
+#![allow(unreachable_patterns)]
+
 use async_trait::async_trait;
 use std::time::Duration;
 use std::collections::HashMap;

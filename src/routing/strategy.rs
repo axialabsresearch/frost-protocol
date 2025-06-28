@@ -1,3 +1,7 @@
+#![allow(dead_code)]
+#![allow(unused_imports)]
+#![allow(unused_variables)]
+
 use async_trait::async_trait;
 use std::collections::{HashMap, HashSet, VecDeque};
 use crate::state::ChainId;

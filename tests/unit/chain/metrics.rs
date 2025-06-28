@@ -1,3 +1,5 @@
+#![allow(unused_imports)]
+
 use std::time::Duration;
 use frost_protocol::metrics::chain_metrics::{
     ChainMetricsCollector,

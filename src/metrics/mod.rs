@@ -1,3 +1,6 @@
+#![allow(unused_imports)]
+#![allow(unused_variables)]
+
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::RwLock;

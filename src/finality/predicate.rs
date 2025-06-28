@@ -1,5 +1,6 @@
 #![allow(unused_imports)]
 #![allow(unused_variables)]
+#![allow(dead_code)]
 
 use std::time::Duration;
 use serde::{Serialize, Deserialize};

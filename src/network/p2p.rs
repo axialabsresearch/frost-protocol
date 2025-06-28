@@ -1,5 +1,8 @@
 #![allow(unused_imports)]
 #![allow(unused_variables)]
+#![allow(dead_code)]
+
+// temporary
 #![allow(deprecated)]
 
 use async_trait::async_trait;

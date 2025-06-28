@@ -1,3 +1,6 @@
+#![allow(unused_variables)]
+#![allow(unused_imports)]
+
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};

@@ -1,3 +1,5 @@
+#![allow(unused_variables)]
+
 use frost_protocol::{
     state::{BlockRef, ChainId},
     state::types::BlockId,
