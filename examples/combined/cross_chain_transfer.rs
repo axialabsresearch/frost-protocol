@@ -34,6 +34,8 @@ use std::time::{Duration, SystemTime, Instant};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
+use std::path::PathBuf;
+use std::str::FromStr;
 
 // FROST Protocol specific imports
 use frost_protocol::{
@@ -793,17 +795,18 @@ async fn main() -> Result<()> {
     let metrics = ChainMetrics::default();
     let mut monitor = TransferMonitor::new(3);
 
+    // Load and validate configuration
+    println!("Loading configuration...");
+    let config = CrossChainConfig::from_env()?;
+    config.validate()?;
+    config.print_config();
+
     println!("\nInitializing protocol components on testnets:");
     println!("- Ethereum network: {}", ETH_TESTNET);
     println!("- Polkadot network: {}", DOT_TESTNET);
 
-    // Step 1: Initialize FROST Protocol components
-    let (
-        eth_verifier,
-        sub_verifier,
-        network,
-        router
-    ) = match initialize_components().await {
+    // Initialize components with configuration
+    let (eth_verifier, sub_verifier, network, router) = match initialize_components_with_config(&config).await {
         Ok(components) => components,
         Err(e) => {
             println!("Failed to initialize components: {}", e);
@@ -811,22 +814,28 @@ async fn main() -> Result<()> {
         }
     };
 
-    // Step 2: Set up blockchain-specific parameters
+    // Set up blockchain-specific parameters
     let source_chain = ChainId::new("ethereum");
     let target_chain = ChainId::new("polkadot");
     let recipient = "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY";
 
     // Get wallet configuration and validate amounts
-    let (source_address, transfer_amount) = get_wallet_config()?;
+    let (source_address, transfer_amount) = get_wallet_config_with_limits(&config.transfer)?;
     println!("Using source address: {}", source_address);
     println!("Transfer amount: {} Wei", transfer_amount);
 
-    // Step 3: Perform pre-transfer validation
-    let (eth_rpc, dot_ws) = get_network_endpoints();
-    
-    // Check Ethereum balance and gas requirements
+    // Check balance and estimate gas with configured limits
+    let (eth_rpc, dot_ws) = get_network_endpoints()?;
     let balance = check_eth_balance(&eth_rpc, &source_address).await?;
-    let gas_cost = estimate_gas(&eth_rpc, &source_address, recipient, transfer_amount).await?;
+    let gas_cost = estimate_gas_with_limit(
+        &eth_rpc,
+        &source_address,
+        recipient,
+        transfer_amount,
+        config.chain.eth_gas_limit,
+        config.chain.eth_max_gas_price,
+    ).await?;
+    
     let total_required = transfer_amount + gas_cost;
     
     // Validate sufficient funds
@@ -942,6 +951,131 @@ async fn main() -> Result<()> {
     print_transfer_metrics(&metrics).await?;
 
     Ok(())
+}
+
+/// Initialize components with configuration
+async fn initialize_components_with_config(
+    config: &CrossChainConfig,
+) -> Result<(
+    EthereumVerifier,
+    SubstrateVerifier,
+    SharedNetwork,
+    BasicRouter<SharedNetwork>,
+)> {
+    println!("Starting component initialization...");
+    
+    // Initialize finality verifiers with configured confirmation requirements
+    let eth_config = FinalityConfig {
+        min_confirmations: config.chain.eth_min_confirmations,
+        finality_timeout: Duration::from_secs(config.transfer.timeout_secs),
+        basic_params: HashMap::new(),
+    };
+    let eth_verifier = EthereumVerifier::new(eth_config);
+    println!("✓ Ethereum verifier initialized");
+
+    let sub_config = FinalityConfig {
+        min_confirmations: config.chain.dot_min_confirmations,
+        finality_timeout: Duration::from_secs(config.transfer.timeout_secs),
+        basic_params: HashMap::new(),
+    };
+    let sub_verifier = SubstrateVerifier::new(sub_config);
+    println!("✓ Substrate verifier initialized");
+
+    // Initialize network with configured settings
+    let network_config = NetworkConfig {
+        node_id: Uuid::new_v4().to_string(),
+        listen_addr: "127.0.0.1:9000".to_string(),
+        bootstrap_peers: vec![
+            "/ip4/127.0.0.1/tcp/9001/p2p/test-peer-1".to_string(),
+        ],
+        protocol_version: 1,
+    };
+    
+    let network = Arc::new(Mutex::new(BasicNetwork::new(network_config.clone())));
+    let shared_network = SharedNetwork(network);
+    
+    let mut network_clone = shared_network.clone();
+    network_clone.start().await?;
+    println!("✓ Network started");
+    
+    // Initialize router with configured max routes
+    let router_config = RoutingConfig {
+        node_id: network_config.node_id,
+        route_timeout: config.transfer.timeout_secs,
+        max_routes: config.transfer.max_routes as usize,
+    };
+    let router = BasicRouter::new(router_config, shared_network.clone());
+    println!("✓ Router initialized");
+
+    Ok((
+        eth_verifier,
+        sub_verifier,
+        shared_network,
+        router,
+    ))
+}
+
+/// Get wallet configuration with amount validation
+fn get_wallet_config_with_limits(transfer_config: &TransferConfig) -> Result<(String, u128)> {
+    let source_address = env::var("ETH_SOURCE_ADDRESS")
+        .unwrap_or_else(|_| DEFAULT_ETH_SOURCE_ADDRESS.to_string());
+    
+    if source_address.is_empty() {
+        println!("! No source ETH address configured. Please set ETH_SOURCE_ADDRESS environment variable.");
+        return Err("No source address configured".into());
+    }
+
+    println!("Enter amount of ETH to transfer (min: {}, max: {}): ",
+        transfer_config.min_amount,
+        transfer_config.max_amount);
+    
+    let mut input = String::new();
+    std::io::stdin().read_line(&mut input)?;
+    
+    let eth_amount: f64 = input.trim().parse().map_err(|_| "Invalid ETH amount")?;
+    
+    // Validate against configured limits
+    if eth_amount < transfer_config.min_amount {
+        return Err(format!("Transfer amount must be at least {} ETH", transfer_config.min_amount).into());
+    }
+    if eth_amount > transfer_config.max_amount {
+        return Err(format!("Transfer amount must not exceed {} ETH", transfer_config.max_amount).into());
+    }
+    
+    let wei_amount = (eth_amount * WEI_PER_ETH as f64) as u128;
+    println!("Converting {} ETH to {} Wei", eth_amount, wei_amount);
+
+    Ok((source_address, wei_amount))
+}
+
+/// Estimate gas with configured limits
+async fn estimate_gas_with_limit(
+    rpc_url: &str,
+    from: &str,
+    to: &str,
+    amount: u128,
+    gas_limit: u64,
+    max_gas_price: u64,
+) -> Result<u128> {
+    let estimated_gas = estimate_gas(rpc_url, from, to, amount).await?;
+    
+    if estimated_gas > gas_limit as u128 {
+        return Err(format!(
+            "Estimated gas {} exceeds configured limit {}",
+            estimated_gas, gas_limit
+        ).into());
+    }
+
+    let gas_price = get_gas_price(rpc_url).await?;
+    if gas_price > (max_gas_price as u128 * 1_000_000_000) { // Convert Gwei to Wei
+        return Err(format!(
+            "Current gas price {} Gwei exceeds maximum {}",
+            gas_price / 1_000_000_000,
+            max_gas_price
+        ).into());
+    }
+
+    Ok(estimated_gas * gas_price)
 }
 
 /// Initialize all FROST Protocol components
@@ -1082,4 +1216,311 @@ async fn print_transfer_metrics(metrics: &ChainMetrics) -> Result<()> {
     println!("Average block time: {:.2}s", metrics.avg_block_time);
     
     Ok(())
+}
+
+/// Get network endpoints with support for user configuration
+fn get_network_endpoints() -> Result<(String, String)> {
+    // Try environment variables first
+    let eth_rpc = match env::var("ETH_RPC_URL") {
+        Ok(url) => url,
+        Err(_) => {
+            println!("No ETH_RPC_URL environment variable found, using default Sepolia endpoint");
+            println!("To use custom endpoint, set ETH_RPC_URL environment variable");
+            DEFAULT_SEPOLIA_RPC.to_string()
+        }
+    };
+
+    let dot_ws = match env::var("DOT_WS_URL") {
+        Ok(url) => url,
+        Err(_) => {
+            println!("No DOT_WS_URL environment variable found, using default Westend endpoint");
+            println!("To use custom endpoint, set DOT_WS_URL environment variable");
+            DEFAULT_WESTEND_WS.to_string()
+        }
+    };
+
+    // Validate endpoints
+    if !eth_rpc.starts_with("http") && !eth_rpc.starts_with("ws") {
+        return Err(Error::from("Invalid Ethereum RPC URL format"));
+    }
+
+    if !dot_ws.starts_with("ws") {
+        return Err(Error::from("Invalid Westend WebSocket URL format"));
+    }
+
+    Ok((eth_rpc, dot_ws))
+}
+
+/// Get testnet configuration with support for user customization
+fn get_testnet_config() -> Result<[(ChainId, String); 2]> {
+    // Allow overriding testnet selection through environment variables
+    let eth_network = env::var("ETH_NETWORK").unwrap_or_else(|_| ETH_TESTNET.to_string());
+    let dot_network = env::var("DOT_NETWORK").unwrap_or_else(|_| DOT_TESTNET.to_string());
+
+    // Validate network selections
+    let valid_eth_networks = ["mainnet", "sepolia", "goerli"];
+    let valid_dot_networks = ["mainnet", "westend", "rococo"];
+
+    if !valid_eth_networks.contains(&eth_network.as_str()) {
+        return Err(Error::from(format!(
+            "Invalid Ethereum network. Must be one of: {:?}",
+            valid_eth_networks
+        )));
+    }
+
+    if !valid_dot_networks.contains(&dot_network.as_str()) {
+        return Err(Error::from(format!(
+            "Invalid Polkadot network. Must be one of: {:?}",
+            valid_dot_networks
+        )));
+    }
+
+    Ok([
+        (ChainId::new("ethereum"), eth_network),
+        (ChainId::new("polkadot"), dot_network),
+    ])
+}
+
+/// Check Ethereum RPC endpoint with retry logic
+async fn check_eth_call(rpc_url: &str, address: &str) -> Result<u128> {
+    let max_retries = env::var("ETH_MAX_RETRIES")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(MAX_RETRIES);
+
+    let retry_delay = env::var("ETH_RETRY_DELAY")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(RETRY_DELAY);
+
+    let mut attempts = 0;
+    let mut last_error = None;
+
+    while attempts < max_retries {
+        match check_eth_balance(rpc_url, address).await {
+            Ok(balance) => return Ok(balance),
+            Err(e) => {
+                attempts += 1;
+                last_error = Some(e);
+                if attempts < max_retries {
+                    println!(
+                        "RPC call failed, attempt {}/{}: {}",
+                        attempts,
+                        max_retries,
+                        last_error.as_ref().unwrap()
+                    );
+                    sleep(Duration::from_secs(retry_delay * attempts as u64)).await;
+                }
+            }
+        }
+    }
+
+    Err(last_error.unwrap_or_else(|| Error::from("Maximum retry attempts reached")))
+}
+
+// Chain-specific configuration
+#[derive(Debug, Clone)]
+struct ChainConfig {
+    // Ethereum settings
+    eth_min_confirmations: u32, 
+    eth_max_gas_price: u64,   // in Gwei
+    eth_gas_limit: u64,
+    
+    // Polkadot settings
+    dot_min_confirmations: u32,        // minimum balance
+    dot_existential_deposit: u128,
+}
+
+// Transfer configuration
+#[derive(Debug, Clone)]
+struct TransferConfig {
+    timeout_secs: u64,
+    min_amount: f64,         // in native token (ETH/DOT)
+    max_amount: f64,         // in native token (ETH/DOT)       
+    max_routes: u32,
+}
+
+// Security configuration
+#[derive(Debug, Clone)]
+struct SecurityConfig {
+    eth_private_key_path: PathBuf,
+    dot_seed_path: PathBuf,
+}
+
+// Combined configuration
+#[derive(Debug, Clone)]
+struct CrossChainConfig {
+    chain: ChainConfig,
+    transfer: TransferConfig,
+    security: SecurityConfig,
+}
+
+impl Default for ChainConfig {
+    fn default() -> Self {
+        Self {
+            eth_min_confirmations: 12,
+            eth_max_gas_price: 100,    // 100 Gwei
+            eth_gas_limit: 21000,      // Standard ETH transfer
+            dot_min_confirmations: 1,
+            dot_existential_deposit: 1_000_000_000_000, // 1 DOT in planck
+        }
+    }
+}
+
+impl Default for TransferConfig {
+    fn default() -> Self {
+        Self {
+            timeout_secs: 300,
+            min_amount: 0.01,
+            max_amount: 100.0,
+            max_routes: 10,
+        }
+    }
+}
+
+impl Default for SecurityConfig {
+    fn default() -> Self {
+        Self {
+            eth_private_key_path: PathBuf::from(".keys/eth_private_key"),
+            dot_seed_path: PathBuf::from(".keys/dot_seed"),
+        }
+    }
+}
+
+impl CrossChainConfig {
+    /// Load configuration from environment variables with defaults
+    fn from_env() -> Result<Self> {
+        // Chain-specific settings
+        let chain = ChainConfig {
+            eth_min_confirmations: env::var("ETH_MIN_CONFIRMATIONS")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(12),
+                
+            eth_max_gas_price: env::var("ETH_MAX_GAS_PRICE")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(100),
+                
+            eth_gas_limit: env::var("ETH_GAS_LIMIT")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(21000),
+                
+            dot_min_confirmations: env::var("DOT_MIN_CONFIRMATIONS")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(1),
+                
+            dot_existential_deposit: env::var("DOT_EXISTENTIAL_DEPOSIT")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(1_000_000_000_000),
+        };
+
+        // Transfer settings
+        let transfer = TransferConfig {
+            timeout_secs: env::var("TRANSFER_TIMEOUT")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(300),
+                
+            min_amount: env::var("MIN_TRANSFER_AMOUNT")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(0.01),
+                
+            max_amount: env::var("MAX_TRANSFER_AMOUNT")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(100.0),
+                
+            max_routes: env::var("MAX_ROUTES")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(10),
+        };
+
+        // Security settings
+        let security = SecurityConfig {
+            eth_private_key_path: PathBuf::from(
+                env::var("ETH_PRIVATE_KEY_PATH")
+                    .unwrap_or_else(|_| ".keys/eth_private_key".to_string())
+            ),
+            dot_seed_path: PathBuf::from(
+                env::var("DOT_SEED_PATH")
+                    .unwrap_or_else(|_| ".keys/dot_seed".to_string())
+            ),
+        };
+
+        Ok(Self {
+            chain,
+            transfer: TransferConfig::default(),
+            security: SecurityConfig::default(),
+        })
+    }
+
+    /// Validate the configuration
+    fn validate(&self) -> Result<()> {
+        // Validate chain settings
+        if self.chain.eth_min_confirmations < 1 {
+            return Err(Error::from("ETH_MIN_CONFIRMATIONS must be at least 1"));
+        }
+        if self.chain.eth_max_gas_price == 0 {
+            return Err(Error::from("ETH_MAX_GAS_PRICE must be greater than 0"));
+        }
+        if self.chain.eth_gas_limit < 21000 {
+            return Err(Error::from("ETH_GAS_LIMIT must be at least 21000"));
+        }
+        if self.chain.dot_min_confirmations < 1 {
+            return Err(Error::from("DOT_MIN_CONFIRMATIONS must be at least 1"));
+        }
+
+        // Validate transfer settings
+        if self.transfer.timeout_secs < 60 {
+            return Err(Error::from("TRANSFER_TIMEOUT must be at least 60 seconds"));
+        }
+        if self.transfer.min_amount <= 0.0 {
+            return Err(Error::from("MIN_TRANSFER_AMOUNT must be greater than 0"));
+        }
+        if self.transfer.max_amount <= self.transfer.min_amount {
+            return Err(Error::from("MAX_TRANSFER_AMOUNT must be greater than MIN_TRANSFER_AMOUNT"));
+        }
+        if self.transfer.max_routes == 0 {
+            return Err(Error::from("MAX_ROUTES must be greater than 0"));
+        }
+
+        // Validate security settings
+        if !self.security.eth_private_key_path.parent().map_or(false, |p| p.exists()) {
+            return Err(Error::from("ETH_PRIVATE_KEY_PATH parent directory does not exist"));
+        }
+        if !self.security.dot_seed_path.parent().map_or(false, |p| p.exists()) {
+            return Err(Error::from("DOT_SEED_PATH parent directory does not exist"));
+        }
+
+        Ok(())
+    }
+
+    /// Print current configuration
+    fn print_config(&self) {
+        println!("\nCurrent Configuration:");
+        println!("\nChain-specific settings:");
+        println!("  Ethereum:");
+        println!("    Min confirmations: {}", self.chain.eth_min_confirmations);
+        println!("    Max gas price: {} Gwei", self.chain.eth_max_gas_price);
+        println!("    Gas limit: {}", self.chain.eth_gas_limit);
+        println!("  Polkadot:");
+        println!("    Min confirmations: {}", self.chain.dot_min_confirmations);
+        println!("    Existential deposit: {} Planck", self.chain.dot_existential_deposit);
+
+        println!("\nTransfer settings:");
+        println!("  Timeout: {} seconds", self.transfer.timeout_secs);
+        println!("  Min amount: {} tokens", self.transfer.min_amount);
+        println!("  Max amount: {} tokens", self.transfer.max_amount);
+        println!("  Max routes: {}", self.transfer.max_routes);
+
+        println!("\nSecurity settings:");
+        println!("  ETH private key path: {}", self.security.eth_private_key_path.display());
+        println!("  DOT seed path: {}", self.security.dot_seed_path.display());
+    }
 } 
