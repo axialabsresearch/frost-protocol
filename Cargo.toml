@@ -64,6 +64,7 @@ void = "1.0.2"
 lru = "0.14.0"
 reqwest = "0.12.20"
 bs58 = "0.5.1"
+# parity-scale-codec = "3.7.5"
 
 
 [dev-dependencies]

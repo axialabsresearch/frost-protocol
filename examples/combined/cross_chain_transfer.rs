@@ -65,8 +65,7 @@ use serde_json::json;
 use subxt::{OnlineClient, Config};
 use subxt::config::Hasher;
 use sp_runtime::traits::Hash; 
-use parity_scale_codec::Encode;
-use codec::Decode;
+use codec::{Encode, Decode};
 use reqwest::{Client, Response};
 use tokio::time::sleep;
 use sp_runtime::traits::BlakeTwo256;
@@ -74,6 +73,7 @@ use sp_core::crypto::Ss58Codec;
 use bs58;
 use hex;
 use polkadot_primitives;
+use subxt::ext::sp_runtime::traits::BlakeTwo256 as SubxtBlakeTwo256;
 
 const TRANSFER_AMOUNT: u128 = 1_000_000_000_000_000_000; // 1 ETH
 const MAX_TRANSFER_TIME: Duration = Duration::from_secs(300);
@@ -380,7 +380,7 @@ impl Config for WestendConfig {
     type AccountId = sp_runtime::AccountId32;
     type Address = sp_runtime::MultiAddress<Self::AccountId, u32>;
     type Signature = sp_runtime::MultiSignature;
-    type Hasher = subxt::config::substrate::BlakeTwo256;
+    type Hasher = SubxtBlakeTwo256;
     type Header = subxt::ext::sp_runtime::generic::Header<u32, Self::Hasher>;
     type ExtrinsicParams = subxt::config::polkadot::PolkadotExtrinsicParams<Self>;
 }
@@ -434,6 +434,323 @@ struct AccountData {
     reserved: u128,
     misc_frozen: u128,
     fee_frozen: u128,
+}
+
+// Enhanced transfer state tracking
+#[derive(Debug, Clone)]
+pub enum TransferState {
+    Initialized,
+    SourceValidated,
+    MessageSent { message_id: String },
+    RouteDiscovered { route_count: usize },
+    InProgress { progress: f32 },
+    TargetValidated,
+    Completed { tx_hash: Option<String> },
+    Failed { reason: String, retry_count: u32 },
+}
+
+#[derive(Debug)]
+pub struct TransferMonitor {
+    pub state: TransferState,
+    pub start_time: Instant,
+    pub last_update: Instant,
+    pub retry_count: u32,
+    pub max_retries: u32,
+}
+
+impl TransferMonitor {
+    pub fn new(max_retries: u32) -> Self {
+        let now = Instant::now();
+        Self {
+            state: TransferState::Initialized,
+            start_time: now,
+            last_update: now,
+            retry_count: 0,
+            max_retries,
+        }
+    }
+
+    pub fn update_state(&mut self, new_state: TransferState) {
+        self.last_update = Instant::now();
+        self.state = new_state;
+        println!("Transfer state updated: {:?}", self.state);
+    }
+
+    pub fn should_retry(&self) -> bool {
+        self.retry_count < self.max_retries
+    }
+
+    pub fn increment_retry(&mut self) {
+        self.retry_count += 1;
+    }
+
+    pub fn elapsed(&self) -> Duration {
+        self.start_time.elapsed()
+    }
+}
+
+// Enhanced balance checking with multiple providers
+pub async fn check_balance_with_fallback(
+    primary_rpc: &str,
+    fallback_rpcs: &[String],
+    address: &str,
+) -> Result<u128> {
+    // Try primary RPC first
+    match check_eth_balance(primary_rpc, address).await {
+        Ok(balance) => return Ok(balance),
+        Err(e) => {
+            println!("Primary RPC failed: {}, trying fallbacks...", e);
+        }
+    }
+
+    // Try fallback RPCs
+    for (i, rpc_url) in fallback_rpcs.iter().enumerate() {
+        println!("Trying fallback RPC {}: {}", i + 1, rpc_url);
+        match check_eth_balance(rpc_url, address).await {
+            Ok(balance) => {
+                println!("✓ Fallback RPC {} succeeded", i + 1);
+                return Ok(balance);
+            }
+            Err(e) => {
+                println!("Fallback RPC {} failed: {}", i + 1, e);
+            }
+        }
+    }
+
+    Err(TransferError::NetworkError(
+        "All RPC endpoints failed".to_string()
+    ).into())
+}
+
+#[derive(Debug)]
+pub struct TransferValidation {
+    pub eth_balance: u128,
+    pub gas_cost: u128,
+    pub total_required: u128,
+    pub sufficient_funds: bool,
+    pub westend_connected: bool,
+    pub westend_balance: Option<u128>,
+    pub recipient_valid: bool,
+    pub westend_error: Option<String>,
+    pub recipient_error: Option<String>,
+}
+
+impl TransferValidation {
+    fn new() -> Self {
+        Self {
+            eth_balance: 0,
+            gas_cost: 0,
+            total_required: 0,
+            sufficient_funds: false,
+            westend_connected: false,
+            westend_balance: None,
+            recipient_valid: false,
+            westend_error: None,
+            recipient_error: None,
+        }
+    }
+
+    pub fn is_valid(&self) -> bool {
+        self.sufficient_funds && self.westend_connected && self.recipient_valid
+    }
+
+    pub fn print_summary(&self) {
+        println!("\n=== Transfer Validation Summary ===");
+        println!("ETH Balance: {} Wei", self.eth_balance);
+        println!("Gas Cost: {} Wei", self.gas_cost);
+        println!("Total Required: {} Wei", self.total_required);
+        println!("Sufficient Funds: {}", if self.sufficient_funds { "✓" } else { "✗" });
+        
+        if self.westend_connected {
+            println!("Westend Connection: ✓");
+            if let Some(balance) = self.westend_balance {
+                println!("Westend Balance: {} WND", balance as f64 / 1_000_000_000_000.0);
+            }
+            println!("Recipient Valid: {}", if self.recipient_valid { "✓" } else { "✗" });
+        } else {
+            println!("Westend Connection: ✗");
+            if let Some(error) = &self.westend_error {
+                println!("Westend Error: {}", error);
+            }
+        }
+
+        if let Some(error) = &self.recipient_error {
+            println!("Recipient Error: {}", error);
+        }
+    }
+}
+
+// Enhanced pre-transfer validation
+pub async fn validate_transfer_preconditions(
+    eth_rpc: &str,
+    dot_ws: &str,
+    source_address: &str,
+    recipient: &str,
+    amount: u128,
+) -> Result<TransferValidation> {
+    let mut validation = TransferValidation::new();
+
+    // Check Ethereum balance and gas
+    let balance = check_eth_balance(eth_rpc, source_address).await?;
+    let gas_cost = estimate_gas(eth_rpc, source_address, recipient, amount).await?;
+    
+    validation.eth_balance = balance;
+    validation.gas_cost = gas_cost;
+    validation.total_required = amount + gas_cost;
+    validation.sufficient_funds = balance >= validation.total_required;
+
+    // Check Westend connection
+    match check_westend_connection(dot_ws).await {
+        Ok(client) => {
+            validation.westend_connected = true;
+            match check_westend_balance(&client, recipient).await {
+                Ok(westend_balance) => {
+                    validation.westend_balance = Some(westend_balance);
+                    validation.recipient_valid = true;
+                }
+                Err(e) => {
+                    validation.recipient_error = Some(e.to_string());
+                }
+            }
+        }
+        Err(e) => {
+            validation.westend_error = Some(e.to_string());
+        }
+    }
+
+    Ok(validation)
+}
+
+// Enhanced transfer execution with better monitoring
+pub async fn execute_monitored_transfer(
+    source_chain: ChainId,
+    target_chain: ChainId,
+    source_address: String,
+    recipient: String,
+    amount: u128,
+    router: &BasicRouter<SharedNetwork>,
+    eth_verifier: &EthereumVerifier,
+    sub_verifier: &SubstrateVerifier,
+) -> Result<String> {
+    let mut monitor = TransferMonitor::new(3);
+    
+    loop {
+        match execute_transfer_attempt(
+            &source_chain,
+            &target_chain,
+            &source_address,
+            &recipient,
+            amount,
+            router,
+            eth_verifier,
+            sub_verifier,
+            &mut monitor,
+        ).await {
+            Ok(tx_hash) => {
+                monitor.update_state(TransferState::Completed { 
+                    tx_hash: Some(tx_hash.clone()) 
+                });
+                return Ok(tx_hash);
+            }
+            Err(e) => {
+                if monitor.should_retry() {
+                    monitor.increment_retry();
+                    monitor.update_state(TransferState::Failed { 
+                        reason: e.to_string(), 
+                        retry_count: monitor.retry_count 
+                    });
+                    
+                    let backoff_delay = Duration::from_secs(2_u64.pow(monitor.retry_count));
+                    println!("Retrying in {:?}... (attempt {}/{})", 
+                        backoff_delay, monitor.retry_count + 1, monitor.max_retries + 1);
+                    sleep(backoff_delay).await;
+                } else {
+                    return Err(e);
+                }
+            }
+        }
+    }
+}
+
+async fn execute_transfer_attempt(
+    source_chain: &ChainId,
+    target_chain: &ChainId,
+    source_address: &str,
+    recipient: &str,
+    amount: u128,
+    router: &BasicRouter<SharedNetwork>,
+    eth_verifier: &EthereumVerifier,
+    sub_verifier: &SubstrateVerifier,
+    monitor: &mut TransferMonitor,
+) -> Result<String> {
+    // Step 1: Validate source chain state
+    monitor.update_state(TransferState::SourceValidated);
+    
+    let source_block = BlockRef::new(source_chain.clone(), 0, [0u8; 32]);
+    let signal = FinalitySignal::Ethereum {
+        block_number: 0,
+        block_hash: [0u8; 32],
+        confirmations: 12,
+        finality_type: EthereumFinalityType::Confirmations,
+        metadata: None,
+    };
+    
+    eth_verifier.verify_finality(&source_block, &signal).await
+        .map_err(|e| TransferError::NetworkError(format!("Source verification failed: {}", e)).into())?;
+
+    // Step 2: Create and send message
+    let message = create_transfer_message(
+        source_chain,
+        target_chain,
+        &source_block,
+        recipient,
+        amount,
+    );
+
+    let message_id = router.route(message.clone()).await
+        .map_err(|e| TransferError::NetworkError(format!("Message routing failed: {}", e)).into())?;
+    
+    let message_id_str = message_id.to_string();
+    monitor.update_state(TransferState::MessageSent { message_id: message_id_str.clone() });
+
+    // Step 3: Monitor progress with timeout
+    let timeout = Duration::from_secs(300);
+    let start = Instant::now();
+    
+    while start.elapsed() < timeout {
+        // Check routes
+        let routes = router.get_routes().await
+            .map_err(|e| TransferError::NetworkError(format!("Route check failed: {}", e)).into())?;
+        
+        if !routes.is_empty() {
+            monitor.update_state(TransferState::RouteDiscovered { 
+                route_count: routes.len() 
+            });
+
+            // Calculate progress based on time elapsed
+            let progress = (start.elapsed().as_secs_f32() / timeout.as_secs_f32()).min(0.9);
+            monitor.update_state(TransferState::InProgress { progress });
+
+            // Check target chain finality
+            let target_block = BlockRef::new(target_chain.clone(), 0, [0u8; 32]);
+            let target_signal = FinalitySignal::Substrate {
+                block_number: 0,
+                block_hash: [0u8; 32],
+                metadata: None,
+            };
+
+            if sub_verifier.verify_finality(&target_block, &target_signal).await.is_ok() {
+                if verify_target_state(&message)? {
+                    monitor.update_state(TransferState::TargetValidated);
+                    return Ok(format!("transfer_{}", message_id_str));
+                }
+            }
+        }
+
+        sleep(Duration::from_secs(5)).await;
+    }
+
+    Err(TransferError::NetworkError("Transfer timeout".to_string()).into())
 }
 
 #[tokio::main]
