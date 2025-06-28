@@ -313,12 +313,33 @@ async fn make_json_call(rpc_url: &str, request: serde_json::Value) -> Result<ser
         let text = resp.text().await
             .map_err(|e| TransferError::NetworkError(e.to_string()))?;
 
+            println!("[DEBUG] Raw text: {}", text);
+
         serde_json::from_str::<serde_json::Value>(&text)
             .map_err(|e| TransferError::RpcError(format!("Failed to parse JSON response: {}", e)).into())
     }).await
 }
 
-// Update the RPC functions to use the helper
+// Add after retry_rpc_call function
+async fn make_json_call_with_fallback(request: serde_json::Value) -> Result<serde_json::Value> {
+    let endpoints = [
+        "https://rpc.sepolia.org",
+        "https://rpc2.sepolia.org",
+        "https://eth-sepolia.public.blastapi.io"
+    ];
+
+    for (i, endpoint) in endpoints.iter().enumerate() {
+        println!("[DEBUG] Trying RPC endpoint {}: {}", i + 1, endpoint);
+        match make_json_call(endpoint, request.clone()).await {
+            Ok(response) => return Ok(response),
+            Err(e) => println!("[DEBUG] Endpoint {} failed: {}", endpoint, e),
+        }
+    }
+
+    Err(Error::from("All RPC endpoints failed"))
+}
+
+// Update check_eth_balance to use fallback
 async fn check_eth_balance(rpc_url: &str, address: &str) -> Result<u128> {
     println!("Checking Sepolia ETH balance...");
     
@@ -329,7 +350,15 @@ async fn check_eth_balance(rpc_url: &str, address: &str) -> Result<u128> {
         "id": 1
     });
 
-    let response = make_json_call(rpc_url, request).await?;
+    println!("[DEBUG] Request payload: {}", request.to_string());
+
+    let response = make_json_call_with_fallback(request).await?;
+    
+    println!("[DEBUG] Raw response: {}", response);
+
+    if let Some(error) = response.get("error") {
+        return Err(TransferError::RpcError(format!("RPC error: {:?}", error)).into());
+    }
     
     if let Some(hex_balance) = response.get("result").and_then(|v| v.as_str()) {
         let balance = u128::from_str_radix(&hex_balance[2..], 16)
