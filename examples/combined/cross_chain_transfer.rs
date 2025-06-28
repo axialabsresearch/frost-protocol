@@ -12,7 +12,6 @@
 
 #![allow(unused_variables)]
 #![allow(unused_imports)]
-#![allow(dead_code)]
 
 use std::time::{Duration, SystemTime, Instant};
 use std::collections::HashMap;
@@ -176,7 +175,7 @@ fn get_testnet_config() -> [(ChainId, &'static str); 2] {
     ]
 }
 
-struct SharedNetwork(Arc<Mutex<BasicNetwork>>);
+pub struct SharedNetwork(Arc<Mutex<BasicNetwork>>);
 
 impl Clone for SharedNetwork {
     fn clone(&self) -> Self {
