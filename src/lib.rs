@@ -126,3 +126,8 @@ pub use error::Error;
 
 mod error;
 
+#[cfg(feature = "examples")]
+pub mod examples {
+    pub mod frostbridge;
+}
+

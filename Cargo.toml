@@ -128,8 +128,15 @@ name = "message_routing"
 path = "examples/routing/message_routing.rs"
 
 [[example]]
-name = "cross_chain_transfer"
-path = "examples/combined/cross_chain_transfer.rs"
+name = "frostbridge"
+path = "examples/frostbridge/run_bridge/transfer_cli.rs"
+required-features = ["examples"]
+
+[[example]]
+name = "frostbridge-lib"
+path = "examples/frostbridge/src/lib.rs"
+crate-type = ["lib"]
+required-features = ["examples"]
 
 [[example]]
 name = "protocol_monitor"
@@ -138,3 +145,7 @@ path = "examples/monitoring/protocol_monitor.rs"
 [[example]]
 name = "custom_chain"
 path = "examples/integration/custom_chain.rs"
+
+[features]
+default = []
+examples = []
