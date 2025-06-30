@@ -107,6 +107,10 @@ path = "examples/finality/finality_monitoring.rs"
 name = "multi_chain"
 path = "examples/finality/multi_chain.rs"
 
+[[example]]
+name = "cross_chain_transfer"
+path = "examples/combined"
+
 [features]
 default = []
 examples = []
