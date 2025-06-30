@@ -107,45 +107,6 @@ path = "examples/finality/finality_monitoring.rs"
 name = "multi_chain"
 path = "examples/finality/multi_chain.rs"
 
-[[example]]
-name = "basic_state"
-path = "examples/state/basic_state.rs"
-
-[[example]]
-name = "chain_reorg"
-path = "examples/state/chain_reorg.rs"
-
-[[example]]
-name = "cross_chain_message"
-path = "examples/message/cross_chain_message.rs"
-
-[[example]]
-name = "p2p_node"
-path = "examples/network/p2p_node.rs"
-
-[[example]]
-name = "message_routing"
-path = "examples/routing/message_routing.rs"
-
-[[example]]
-name = "frostbridge"
-path = "examples/frostbridge/run_bridge/transfer_cli.rs"
-required-features = ["examples"]
-
-[[example]]
-name = "frostbridge-lib"
-path = "examples/frostbridge/src/lib.rs"
-crate-type = ["lib"]
-required-features = ["examples"]
-
-[[example]]
-name = "protocol_monitor"
-path = "examples/monitoring/protocol_monitor.rs"
-
-[[example]]
-name = "custom_chain"
-path = "examples/integration/custom_chain.rs"
-
 [features]
 default = []
 examples = []
