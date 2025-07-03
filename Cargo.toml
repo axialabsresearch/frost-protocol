@@ -5,6 +5,19 @@ version = "0.1.0"
 edition = "2021"
 description = "FROST (Finality Reliant Optimized State Transition) Protocol implementation"
 license = "Apache-2.0"
+authors = ["Axia Labs <info@aixalabs.technology"]
+repository = "https://github.com/axialabsresearch/frost-protocol"
+documentation = "https://docs.rs/frost-protocol"
+readme = "README.md"
+keywords = ["blockchain", "interoperability", "consensus", "protocol", "network"]
+categories = ["network-programming", "cryptography", "asynchronous"]
+exclude = [
+    ".github/*",
+    ".keys/*",
+    "tests/*",
+    "examples/*",
+    "docs/*"
+]
 
 [dependencies]
 thiserror = { workspace = true }

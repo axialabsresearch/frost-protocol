@@ -177,6 +177,32 @@ The project includes comprehensive test suites:
   - Finality (`cargo test --test unit_finality`)
   - Message (`cargo test --test unit_message`)
 
+## Version Compatibility
+
+### Rust Version
+- Minimum supported Rust version (MSRV): 1.70.0
+- Tested up to: Latest stable
+
+### Dependencies
+| Dependency | Version Range | Notes |
+|------------|--------------|-------|
+| libp2p | ^0.55.0 | Core networking |
+| tokio | ^1.0 | Async runtime |
+| opentelemetry | ^0.30 | Observability |
+| metrics | ^0.20 | Metrics collection |
+| dashmap | ^6.1 | Thread-safe maps |
+| serde | ^1.0 | Serialization |
+
+### Platform Support
+- Linux (primary)
+- macOS (supported)
+- Windows (supported)
+
+### Breaking Changes Policy
+- Major version increments (x.0.0) may include breaking changes
+- Minor versions (0.x.0) maintain API compatibility
+- Patch versions (0.0.x) for bug fixes only
+
 ## Dependencies
 
 Key dependencies include:

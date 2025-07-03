@@ -199,7 +199,7 @@ The protocol implements several key components:
 ## Implementation Notes
 
 ### Chain Support
-FROST provides extendable different chains irregadless of undelying architecture
+FROST supports different chains regardless of underlying architecture
 
 ### State Handling
 State management:
