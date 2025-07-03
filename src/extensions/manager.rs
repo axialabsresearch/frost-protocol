@@ -3,15 +3,27 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use anyhow::{Result, anyhow};
 use tokio::sync::RwLock;
+use std::any::Any;
+use tracing::{warn, error};
 
 use super::{
     ExtensionId,
     ExtensionMetadata,
+    ExtensionCapability,
     ExtensionConfig,
     ProtocolExtension,
     ExtensionManager,
     ExtensionRegistry,
+    ExtensionState,
+    ExtensionMetrics,
+    PeerEventType,
+    ExtensionError,
+    ExtensionResult,
 };
+use crate::message::FrostMessage;
+use crate::network::Peer;
+use crate::state::{StateTransition, StateProof};
+use crate::finality::FinalitySignal;
 
 /// Default implementation of the extension manager
 pub struct DefaultExtensionManager {
@@ -82,7 +94,7 @@ impl DefaultExtensionManager {
         if let Some(deps) = graph.get(id) {
             for dep in deps {
                 if !visited.contains(dep) {
-                    if self.has_cycle(dep, graph, visited, stack).await? {
+                    if Box::pin(self.has_cycle(dep, graph, visited, stack)).await? {
                         return Ok(true);
                     }
                 } else if stack.contains(dep) {
@@ -123,12 +135,95 @@ impl DefaultExtensionManager {
         let graph = self.dependency_graph.read().await;
         if let Some(deps) = graph.get(id) {
             for dep in deps {
-                self.visit_dependencies(dep, ordered, visited).await?;
+                Box::pin(self.visit_dependencies(dep, ordered, visited)).await?;
             }
         }
 
         ordered.push(id.clone());
         Ok(())
+    }
+}
+
+/// Wrapper to implement ProtocolExtension for RwLock<Box<dyn ProtocolExtension>>
+struct RwLockExtension {
+    inner: Arc<RwLock<Box<dyn ProtocolExtension>>>,
+    metadata: Arc<ExtensionMetadata>,
+}
+
+impl RwLockExtension {
+    async fn new(extension: Arc<RwLock<Box<dyn ProtocolExtension>>>) -> Self {
+        let metadata = extension.read().await.metadata().clone();
+        Self {
+            inner: extension,
+            metadata: Arc::new(metadata),
+        }
+    }
+}
+
+#[async_trait]
+impl ProtocolExtension for RwLockExtension {
+    fn metadata(&self) -> &ExtensionMetadata {
+        &self.metadata
+    }
+
+    async fn initialize(&mut self, config: ExtensionConfig) -> ExtensionResult<()> {
+        self.inner.write().await.initialize(config).await
+    }
+
+    async fn start(&mut self) -> ExtensionResult<()> {
+        self.inner.write().await.start().await
+    }
+
+    async fn stop(&mut self) -> ExtensionResult<()> {
+        self.inner.write().await.stop().await
+    }
+
+    async fn cleanup(&mut self) -> ExtensionResult<()> {
+        self.inner.write().await.cleanup().await
+    }
+
+    async fn handle_message(&self, message: &FrostMessage) -> ExtensionResult<()> {
+        self.inner.read().await.handle_message(message).await
+    }
+
+    async fn pre_process_message(&self, message: &mut FrostMessage) -> ExtensionResult<()> {
+        self.inner.read().await.pre_process_message(message).await
+    }
+
+    async fn post_process_message(&self, message: &FrostMessage) -> ExtensionResult<()> {
+        self.inner.read().await.post_process_message(message).await
+    }
+
+    async fn handle_state_transition(&self, transition: &StateTransition) -> ExtensionResult<()> {
+        self.inner.read().await.handle_state_transition(transition).await
+    }
+
+    async fn handle_peer_event(&self, peer: &Peer, event_type: PeerEventType) -> ExtensionResult<()> {
+        self.inner.read().await.handle_peer_event(peer, event_type).await
+    }
+
+    async fn get_state(&self) -> ExtensionResult<ExtensionState> {
+        self.inner.read().await.get_state().await
+    }
+
+    async fn get_metrics(&self) -> ExtensionResult<ExtensionMetrics> {
+        self.inner.read().await.get_metrics().await
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    async fn verify_finality(&self, signal: &FinalitySignal) -> ExtensionResult<()> {
+        self.inner.read().await.verify_finality(signal).await
+    }
+
+    async fn verify_state_proof(&self, proof: &StateProof) -> ExtensionResult<()> {
+        self.inner.read().await.verify_state_proof(proof).await
+    }
+
+    async fn capabilities(&self) -> Vec<ExtensionCapability> {
+        self.inner.read().await.capabilities().await
     }
 }
 
@@ -139,7 +234,8 @@ impl ExtensionManager for DefaultExtensionManager {
         extension: Box<dyn ProtocolExtension>,
         config: ExtensionConfig,
     ) -> Result<ExtensionId> {
-        let id = self.registry.register(extension, config).await?;
+        let id = self.registry.register(extension, config).await
+            .map_err(|e| anyhow!(e.to_string()))?;
         self.build_dependency_graph().await?;
         self.check_dependency_cycles().await?;
         Ok(id)
@@ -158,13 +254,22 @@ impl ExtensionManager for DefaultExtensionManager {
             }
         }
 
-        self.registry.unregister(id).await?;
+        self.registry.unregister(id).await
+            .map_err(|e| anyhow!(e.to_string()))?;
         self.build_dependency_graph().await?;
         Ok(())
     }
 
     async fn get_extension(&self, id: &ExtensionId) -> Result<Option<Arc<dyn ProtocolExtension>>> {
-        self.registry.get_extension(id).await
+        let locked_ext = self.registry.get_extension(id).await
+            .map_err(|e| anyhow!(e.to_string()))?;
+        
+        if let Some(ext) = locked_ext {
+            let wrapper = RwLockExtension::new(ext).await;
+            Ok(Some(Arc::new(wrapper) as Arc<dyn ProtocolExtension>))
+        } else {
+            Ok(None)
+        }
     }
 
     async fn list_extensions(&self) -> Result<Vec<(ExtensionId, ExtensionMetadata)>> {
@@ -175,10 +280,12 @@ impl ExtensionManager for DefaultExtensionManager {
         // Enable dependencies first
         let deps = self.get_ordered_dependencies(id).await?;
         for dep_id in deps {
-            self.registry.enable(&dep_id).await?;
+            self.registry.enable(&dep_id).await
+                .map_err(|e| anyhow!(e.to_string()))?;
         }
 
         self.registry.enable(id).await
+            .map_err(|e| anyhow!(e.to_string()))
     }
 
     async fn disable_extension(&mut self, id: &ExtensionId) -> Result<()> {
@@ -186,8 +293,9 @@ impl ExtensionManager for DefaultExtensionManager {
         let graph = self.dependency_graph.read().await;
         for (ext_id, deps) in graph.iter() {
             if deps.contains(id) {
-                let state = self.registry.get_state(ext_id).await?;
-                if state == super::ExtensionState::Active {
+                let state = self.registry.get_state(ext_id).await
+                    .map_err(|e| anyhow!(e.to_string()))?;
+                if state == ExtensionState::Active {
                     return Err(anyhow!(
                         "Cannot disable extension {} because active extension {} depends on it",
                         id.0,
@@ -198,21 +306,23 @@ impl ExtensionManager for DefaultExtensionManager {
         }
 
         self.registry.disable(id).await
+            .map_err(|e| anyhow!(e.to_string()))
     }
 
-    fn get_dependencies(&self, id: &ExtensionId) -> Result<Vec<ExtensionId>> {
-        let graph = self.dependency_graph.blocking_read();
+    async fn get_dependencies(&self, id: &ExtensionId) -> Result<Vec<ExtensionId>> {
+        let graph = self.dependency_graph.read().await;
         Ok(graph
             .get(id)
             .map(|deps| deps.iter().cloned().collect())
             .unwrap_or_default())
     }
 
-    fn validate_compatibility(&self, extension: &dyn ProtocolExtension) -> Result<()> {
+    async fn validate_compatibility(&self, extension: &dyn ProtocolExtension) -> Result<()> {
         // For now, just check if all dependencies are available
         // In the future, this could check version compatibility, feature requirements, etc.
         for dep_id in &extension.metadata().dependencies {
-            if self.registry.get_extension(dep_id).blocking_ok().flatten().is_none() {
+            if self.registry.get_extension(dep_id).await
+                .map_err(|e| anyhow!(e.to_string()))?.is_none() {
                 return Err(anyhow!(
                     "Missing required dependency: {}",
                     dep_id.0
@@ -220,5 +330,10 @@ impl ExtensionManager for DefaultExtensionManager {
             }
         }
         Ok(())
+    }
+
+    async fn cleanup_resources(&mut self) -> Result<()> {
+        self.registry.cleanup_resources().await
+            .map_err(|e| anyhow!(e.to_string()))
     }
 } 

@@ -1,36 +1,156 @@
+/*!
+# Finality Error Types
+
+This module defines the error types and handling for the FROST protocol finality system.
+It provides a comprehensive set of error variants that cover various failure modes in
+finality verification, chain synchronization, and consensus operations.
+
+## Error Categories
+
+### Verification Errors
+- `InvalidSignal` - Signal format or content errors
+- `ConsensusError` - Consensus validation failures
+- `ValidatorError` - Validator-related issues
+
+### Chain Errors
+- `NotSynced` - Chain synchronization issues
+- `ChainError` - Chain-specific problems
+- `InvalidChain` - Unsupported chain operations
+
+### Network Errors
+- `NetworkError` - Communication failures
+- `Timeout` - Operation timeouts
+- `RateLimit` - Rate limiting violations
+
+### System Errors
+- `Internal` - Internal system failures
+
+## Error Handling
+
+### Retry Logic
+```rust
+if error.is_retryable() {
+    if let Some(delay) = error.retry_delay() {
+        tokio::time::sleep(delay).await;
+        // Retry operation
+    }
+}
+```
+
+### Severity Levels
+1. **Warning**
+   - Operation can continue
+   - May require retry
+   - Non-critical issues
+
+2. **Error**
+   - Operation should retry
+   - Temporary failures
+   - Recoverable state
+
+3. **Critical**
+   - Operation must stop
+   - System-level issues
+   - Manual intervention
+
+## Best Practices
+
+1. **Error Context**
+   - Include relevant identifiers
+   - Add timing information
+   - Preserve error chain
+   - Add retry guidance
+
+2. **Recovery Handling**
+   - Check retryability
+   - Use recommended delays
+   - Track retry counts
+   - Handle timeouts
+
+3. **Severity Management**
+   - Check error severity
+   - Escalate if needed
+   - Log appropriately
+   - Alert on critical
+
+## Integration
+
+The error system integrates with:
+1. Finality verification
+2. Chain management
+3. Network operations
+4. Recovery system
+*/
+
 #![allow(unused_imports)]
 
 use thiserror::Error;
 use crate::state::BlockRef;
 use std::time::Duration;
+use serde::{Serialize, Deserialize};
 
 /// Finality verification errors
-#[derive(Clone, Error, Debug)]
+#[derive(Clone, Error, Debug, Serialize, Deserialize)]
 pub enum FinalityError {
     /// Invalid finality signal
     #[error("Invalid finality signal: {0}")]
     InvalidSignal(String),
 
     /// Chain not synced
-    #[error("Chain not synced: {0}")]
-    NotSynced(String),
+    #[error("Chain not synced: {details}")]
+    NotSynced {
+        details: String,
+        last_synced: Option<u64>,
+        current_height: Option<u64>,
+    },
 
     /// Consensus error
-    #[error("Consensus error: {0}")]
-    ConsensusError(String),
+    #[error("Consensus error: {details}")]
+    ConsensusError {
+        details: String,
+        required_power: u64,
+        actual_power: u64,
+    },
 
     /// Validator error
-    #[error("Validator error: {0}")]
-    ValidatorError(String),
+    #[error("Validator error: {details}")]
+    ValidatorError {
+        details: String,
+        validator_count: Option<u32>,
+    },
 
     /// Chain-specific error
     #[error("Chain error: {0}")]
     ChainError(String),
 
-    #[error("Timeout error")]
+    /// Invalid chain
+    #[error("Invalid chain: {chain_id}")]
+    InvalidChain {
+        chain_id: String,
+        supported_chains: Vec<String>,
+    },
+
+    /// Network error
+    #[error("Network error: {details}")]
+    NetworkError {
+        details: String,
+        retryable: bool,
+        retry_after: Option<Duration>,
+    },
+
+    /// Timeout error
+    #[error("Timeout error for block {block_ref:?} after {timeout_secs:?}")]
     Timeout { 
         block_ref: BlockRef,
         timeout_secs: Duration,
+        retry_count: u32,
+    },
+
+    /// Rate limit error
+    #[error("Rate limit exceeded: {details}")]
+    RateLimit {
+        details: String,
+        retry_after: Duration,
     },
 
     /// Internal error
@@ -43,15 +163,48 @@ impl FinalityError {
     pub fn is_retryable(&self) -> bool {
         matches!(
             self,
-            FinalityError::NotSynced(_) |
-            FinalityError::ConsensusError(_) |
-            FinalityError::ValidatorError(_)
+            FinalityError::NotSynced { .. } |
+            FinalityError::ConsensusError { .. } |
+            FinalityError::ValidatorError { .. } |
+            FinalityError::NetworkError { retryable: true, .. } |
+            FinalityError::RateLimit { .. }
         )
+    }
+
+    /// Get the recommended retry delay
+    pub fn retry_delay(&self) -> Option<Duration> {
+        match self {
+            FinalityError::NetworkError { retry_after, .. } => *retry_after,
+            FinalityError::RateLimit { retry_after, .. } => Some(*retry_after),
+            FinalityError::NotSynced { .. } => Some(Duration::from_secs(10)),
+            FinalityError::ConsensusError { .. } => Some(Duration::from_secs(5)),
+            _ => None,
+        }
+    }
+
+    /// Get error severity
+    pub fn severity(&self) -> ErrorSeverity {
+        match self {
+            FinalityError::InvalidSignal(_) => ErrorSeverity::Error,
+            FinalityError::NotSynced { .. } => ErrorSeverity::Warning,
+            FinalityError::ConsensusError { .. } => ErrorSeverity::Error,
+            FinalityError::ValidatorError { .. } => ErrorSeverity::Error,
+            FinalityError::ChainError(_) => ErrorSeverity::Critical,
+            FinalityError::InvalidChain { .. } => ErrorSeverity::Critical,
+            FinalityError::NetworkError { retryable, .. } => {
+                if *retryable { ErrorSeverity::Warning } else { ErrorSeverity::Critical }
+            },
+            FinalityError::Timeout { retry_count, .. } => {
+                if *retry_count < 3 { ErrorSeverity::Warning } else { ErrorSeverity::Error }
+            },
+            FinalityError::RateLimit { .. } => ErrorSeverity::Warning,
+            FinalityError::Internal(_) => ErrorSeverity::Critical,
+        }
     }
 }
 
 /// Error severity levels
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ErrorSeverity {
     /// Warning - operation can continue
     Warning,

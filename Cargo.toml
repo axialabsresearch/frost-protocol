@@ -1,3 +1,4 @@
+# frost-protocol/Cargo.toml
 [package]
 name = "frost-protocol"
 version = "0.1.0"
@@ -6,25 +7,14 @@ description = "FROST (Finality Reliant Optimized State Transition) Protocol impl
 license = "Apache-2.0"
 
 [dependencies]
-thiserror = "1.0"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-tokio = { version = "1.0", features = ["full"] }
-async-trait = "0.1"
-tracing = "0.1"
-uuid = { version = "1.0", features = ["v4", "serde"] }
-hex = { version = "0.4", features = ["serde"] }
-
-# Substrate/Polkadot dependencies
-subxt = { version = "0.31", features = ["substrate-compat"] }
-codec = { package = "parity-scale-codec", version = "3.6", features = ["derive"] }
-sp-core = { version = "24.0", features = ["full_crypto"] }
-sp-runtime = { version = "41.1", features = ["std"] }
-sp-consensus-babe = "0.42.1"
-sp-consensus-grandpa = "23.1.0"
-sp-consensus-aura = "0.42.0"
-polkadot-primitives = { version = "18.1.0", features = ["std"] }
-parity-scale-codec-derive = "3.6"
+thiserror = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+async-trait = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+hex = { workspace = true }
 
 # Metrics and monitoring
 metrics = { version = "0.20" }
@@ -64,8 +54,12 @@ void = "1.0.2"
 lru = "0.14.0"
 reqwest = "0.12.20"
 bs58 = "0.5.1"
-# parity-scale-codec = "3.7.5"
-
+dashmap = "6.1.0"
+anyhow = "1.0.98"
+semver = "1.0.26"
+error = "0.1.9"
+once_cell = "1.0"
+petgraph = "0.8.2"
 
 [dev-dependencies]
 tokio-test = "0.4"
@@ -83,33 +77,29 @@ path = "tests/unit/mod.rs"
 name = "integration"
 path = "tests/integration/mod.rs"
 
-[[example]]
-name = "ethereum_finality"
-path = "examples/finality/ethereum_finality.rs"
+[[test]]
+name = "unit_extensions"
+path = "tests/unit/extensions/mod.rs"
 
-[[example]]
-name = "cosmos_finality"
-path = "examples/finality/cosmos_finality.rs"
+[[test]]
+name = "unit_network"
+path = "tests/unit/network/mod.rs"
 
-[[example]]
-name = "substrate_finality"
-path = "examples/finality/substrate_finality.rs"
+[[test]]
+name = "unit_state"
+path = "tests/unit/state/mod.rs"
 
-[[example]]
-name = "custom_rules"
-path = "examples/finality/custom_rules.rs"
+[[test]]
+name = "unit_routing"
+path = "tests/unit/routing/mod.rs"
 
-[[example]]
-name = "finality_monitoring"
-path = "examples/finality/finality_monitoring.rs"
+[[test]]
+name = "unit_finality"
+path = "tests/unit/finality/mod.rs"
 
-[[example]]
-name = "multi_chain"
-path = "examples/finality/multi_chain.rs"
-
-[[example]]
-name = "cross_chain_transfer"
-path = "examples/combined"
+[[test]]
+name = "unit_message"
+path = "tests/unit/message/mod.rs"
 
 [features]
 default = []

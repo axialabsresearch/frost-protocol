@@ -1,8 +1,186 @@
+/*!
+# Routing Module
+
+This module implements the message routing system for the FROST protocol, providing
+intelligent message routing, topology management, and routing strategies.
+
+## Core Components
+
+### Message Router
+The message routing system handles:
+- Route discovery and management
+- Message forwarding decisions
+- Route optimization
+- Failure handling
+
+### Routing Strategy
+Configurable routing strategies including:
+- Default routing
+- Shortest path routing
+- Load-balanced routing
+- Priority-based routing
+
+### Network Topology
+Network structure management:
+- Topology discovery
+- Node relationships
+- Connection management
+- Network health monitoring
+
+## Architecture
+
+The routing system consists of several key components:
+
+1. **Message Router**
+   ```rust
+   pub trait MessageRouter: Send + Sync {
+       async fn route(&self, message: FrostMessage) -> std::result::Result<(), Box<dyn Error>>;
+       async fn update_routes(&mut self, routes: HashMap<String, String>) -> std::result::Result<(), Box<dyn Error>>;
+       async fn get_routes(&self) -> std::result::Result<HashMap<String, String>, Box<dyn Error>>;
+   }
+   ```
+   - Route management
+   - Message forwarding
+   - Route updates
+   - Route queries
+
+2. **Routing Strategy**
+   ```rust
+   pub trait RoutingStrategy: Send + Sync {
+       fn compute_route(&self, message: &FrostMessage, topology: &NetworkTopology) -> Vec<String>;
+       fn update_metrics(&mut self, metrics: RoutingMetrics);
+       fn optimize_routes(&mut self) -> bool;
+   }
+   ```
+   - Path computation
+   - Route optimization
+   - Metric tracking
+   - Strategy adaptation
+
+3. **Network Topology**
+   ```rust
+   pub struct NetworkTopology {
+       nodes: HashMap<ChainId, TopologyNode>,
+       version: u64,
+       last_updated: u64,
+   }
+   ```
+   - Node management
+   - Connection tracking
+   - Topology updates
+   - Health monitoring
+
+## Features
+
+### Routing Features
+- Dynamic route discovery
+- Multi-path routing
+- Route optimization
+- Failure recovery
+
+### Strategy Features
+- Path computation
+- Load balancing
+- Priority handling
+- Congestion avoidance
+
+### Topology Features
+- Node discovery
+- Connection tracking
+- Health monitoring
+- Partition detection
+
+### Metrics
+- Route statistics
+- Performance tracking
+- Health indicators
+- Resource utilization
+
+## Best Practices
+
+### Route Management
+1. Route Updates
+   - Regular route refresh
+   - Stale route cleanup
+   - Route validation
+   - Update propagation
+
+2. Message Handling
+   - Route selection
+   - Failure handling
+   - Loop prevention
+   - Priority management
+
+3. Topology Management
+   - Regular health checks
+   - Connection monitoring
+   - Partition detection
+   - Recovery procedures
+
+4. Performance Optimization
+   - Route caching
+   - Path optimization
+   - Load distribution
+   - Resource management
+
+## Integration Points
+
+### Network Layer
+- Connection management
+- Message transmission
+- Peer discovery
+- Health monitoring
+
+### Message System
+- Message validation
+- Priority handling
+- Flow control
+- Delivery tracking
+
+### State Management
+- Route persistence
+- State synchronization
+- Recovery handling
+- Consistency checks
+
+### Metrics Collection
+- Performance tracking
+- Health monitoring
+- Resource utilization
+- Error tracking
+
+## Performance Considerations
+
+### Resource Management
+- Route table size
+- Cache utilization
+- Memory usage
+- CPU utilization
+
+### Optimization Techniques
+- Route aggregation
+- Path compression
+- Load distribution
+- Cache management
+
+### Monitoring
+- Route statistics
+- Performance metrics
+- Health indicators
+- Resource usage
+
+### Tuning Parameters
+- Route timeouts
+- Cache sizes
+- Update intervals
+- Health thresholds
+*/
+
 #![allow(unused_imports)]
 
-mod router;
-mod strategy;
-mod topology;
+pub mod router;
+pub mod strategy;
+pub mod topology;
 
 pub use router::{MessageRouter as ImportedMessageRouter, RouterConfig};
 pub use strategy::{RoutingStrategy, DefaultStrategy};

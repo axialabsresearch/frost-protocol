@@ -1,3 +1,142 @@
+/*!
+# Network Protocol Module
+
+This module defines the core networking protocol for the FROST system, providing
+interfaces and types for peer-to-peer communication, message handling, and network
+management.
+
+## Core Components
+
+### Network Protocol
+- Protocol management
+- Message handling
+- Peer communication
+- Subscription system
+
+### Message Handling
+- Message broadcasting
+- Direct messaging
+- Message filtering
+- Delivery confirmation
+
+### Network Management
+- Peer connections
+- Network status
+- Bandwidth tracking
+- Protocol versioning
+
+## Architecture
+
+The protocol system consists of several key components:
+
+1. **Network Protocol**
+   ```rust
+   pub trait NetworkProtocol: Send + Sync {
+       async fn start(&mut self) -> Result<()>;
+       async fn stop(&mut self) -> Result<()>;
+       async fn broadcast_message(&self, message: FrostMessage) -> Result<BroadcastResult>;
+       async fn send_message(&self, peer: &Peer, message: FrostMessage) -> Result<SendResult>;
+       async fn subscribe(&mut self, filter: MessageFilter) -> Result<SubscriptionId>;
+       async fn unsubscribe(&mut self, subscription_id: SubscriptionId) -> Result<()>;
+       async fn network_status(&self) -> Result<NetworkStatus>;
+       async fn connected_peers(&self) -> Result<Vec<PeerInfo>>;
+   }
+   ```
+   - Protocol operations
+   - Message handling
+   - Subscription management
+   - Network monitoring
+
+2. **Message Results**
+   ```rust
+   pub struct BroadcastResult {
+       message_id: uuid::Uuid,
+       reached_peers: Vec<PeerInfo>,
+       failed_peers: Vec<(PeerInfo, NetworkError)>,
+       broadcast_time: Duration,
+   }
+   ```
+   - Message tracking
+   - Delivery status
+   - Error handling
+   - Performance metrics
+
+3. **Network Status**
+   ```rust
+   pub struct NetworkStatus {
+       connected_peers: usize,
+       active_subscriptions: usize,
+       messages_in_flight: usize,
+       bandwidth_usage: BandwidthUsage,
+       protocol_version: String,
+   }
+   ```
+   - Connection tracking
+   - Resource usage
+   - Performance metrics
+   - Protocol info
+
+## Features
+
+### Protocol Features
+- Message broadcasting
+- Direct messaging
+- Subscription system
+- Network monitoring
+
+### Message Features
+- Message filtering
+- Delivery tracking
+- Error handling
+- Performance metrics
+
+### Network Features
+- Peer management
+- Status monitoring
+- Bandwidth tracking
+- Resource management
+
+### Configuration
+- Connection limits
+- Timeout settings
+- Protocol settings
+- Resource limits
+
+## Best Practices
+
+1. **Protocol Usage**
+   - Proper initialization
+   - Resource management
+   - Error handling
+   - Cleanup routines
+
+2. **Message Handling**
+   - Message validation
+   - Delivery tracking
+   - Error recovery
+   - Resource limits
+
+3. **Network Management**
+   - Connection handling
+   - Status monitoring
+   - Resource tracking
+   - Performance tuning
+
+4. **Configuration**
+   - Proper timeouts
+   - Resource limits
+   - Protocol settings
+   - Performance tuning
+
+## Integration
+
+The protocol system integrates with:
+1. Message handling
+2. Peer management
+3. Network transport
+4. Security systems
+*/
+
 use async_trait::async_trait;
 use serde::{Serialize, Deserialize};
 use std::time::Duration;
