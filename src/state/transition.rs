@@ -341,7 +341,7 @@ impl StateTransition {
             root_hash: target_hash,
             metadata: None,
         };
-
+        
         Self {
             chain_id,
             block_height: source_height,
