@@ -34,6 +34,8 @@ metrics = { version = "0.20" }
 metrics-exporter-prometheus = "0.11"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 parking_lot = "0.12.4"
+
+# networking
 libp2p = { version = "0.55.0", features = [
     "kad",           # For Kademlia DHT
     "noise",         # For encryption
