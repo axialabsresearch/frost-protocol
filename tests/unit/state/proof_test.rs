@@ -23,6 +23,7 @@ async fn test_proof_creation() {
     let state_data = vec![1, 2, 3, 4];
     
     let transition = StateTransition::new(
+        chain_id.clone(),
         BlockId::Number(1000),
         BlockId::Number(1001),
         state_data.clone(),
@@ -51,6 +52,7 @@ async fn test_proof_verification() {
     let state_data = vec![1, 2, 3, 4];
     
     let transition = StateTransition::new(
+        chain_id.clone(),
         BlockId::Number(1000),
         BlockId::Number(1001),
         state_data.clone(),
@@ -82,6 +84,7 @@ async fn test_invalid_proof_rejection() {
     let block_ref = BlockRef::new(chain_id.clone(), 1000, [0u8; 32]);
     
     let transition = StateTransition::new(
+        chain_id.clone(),
         BlockId::Number(1000),
         BlockId::Number(1001),
         vec![0], // Invalid data
@@ -115,6 +118,7 @@ async fn test_proof_chain_validation() {
     // Create proof for ethereum
     let eth_block = BlockRef::new(eth_chain.clone(), 1000, [0u8; 32]);
     let transition = StateTransition::new(
+        eth_chain.clone(),
         BlockId::Number(1000),
         BlockId::Number(1001),
         vec![1, 2, 3, 4],
@@ -153,6 +157,7 @@ async fn test_proof_metadata() {
     let block_ref = BlockRef::new(chain_id.clone(), 1000, [0u8; 32]);
     
     let transition = StateTransition::new(
+        chain_id.clone(),
         BlockId::Number(1000),
         BlockId::Number(1001),
         vec![1, 2, 3, 4],

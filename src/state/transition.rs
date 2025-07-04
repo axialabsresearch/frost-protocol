@@ -229,7 +229,7 @@ use crate::state::{ChainId, StateRoot, StateError, BlockId, BlockRef};
 use crate::Result;
 use std::time::SystemTime;
 
-/// State transition representation
+/// State transition representation for cross-chain state management
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StateTransition {
     pub chain_id: ChainId,
@@ -241,44 +241,60 @@ pub struct StateTransition {
 }
 
 impl StateTransition {
-    /// Create a new state transition
-    pub fn new(source: BlockId, target: BlockId, data: Vec<u8>) -> Self {
+    /// Create a new state transition between chains
+    /// 
+    /// # Arguments
+    /// * `chain_id` - The identifier of the chain this transition belongs to
+    /// * `source` - The source block identifier
+    /// * `target` - The target block identifier
+    /// * `data` - The transition proof data
+    pub fn new(chain_id: ChainId, source: BlockId, target: BlockId, data: Vec<u8>) -> Self {
+        // Validate data is not empty
+        if data.is_empty() {
+            panic!("State transition data cannot be empty");
+        }
+
         // Extract source block info
-        let (source_chain_id, source_height, source_hash) = match source {
-            BlockId::Number(n) => (ChainId::new("ethereum"), n, [0; 32]),
-            BlockId::Composite { number, hash } => (ChainId::new("ethereum"), number, hash),
-            BlockId::Hash(hash) => (ChainId::new("ethereum"), 0, hash),
+        let (source_height, source_hash) = match source {
+            BlockId::Number(n) => (n, [0; 32]),
+            BlockId::Composite { number, hash } => (number, hash),
+            BlockId::Hash(hash) => (0, hash),
         };
 
         // Extract target block info
         let (target_height, target_hash) = match target {
-            BlockId::Number(n) => (n, [1; 32]),  // Use dummy hash if only number provided
+            BlockId::Number(n) => (n, [1; 32]),
             BlockId::Composite { number, hash } => (number, hash),
-            BlockId::Hash(hash) => (source_height + 1, hash),  // Assume sequential if only hash provided
+            BlockId::Hash(hash) => (source_height + 1, hash),
         };
 
-        // Create block references with actual hashes
-        let source_ref = BlockRef::new(source_chain_id.clone(), source_height, source_hash);
-        let target_ref = BlockRef::new(source_chain_id.clone(), target_height, target_hash);
+        // Validate block heights
+        if target_height <= source_height {
+            panic!("Target block height must be greater than source block height");
+        }
+
+        // Create block references
+        let source_ref = BlockRef::new(chain_id.clone(), source_height, source_hash);
+        let target_ref = BlockRef::new(chain_id.clone(), target_height, target_hash);
 
         // Create state roots
         let pre_state = StateRoot {
             block_ref: source_ref,
-            root_hash: source_hash,  // Use block hash as initial state root
+            root_hash: source_hash,
             metadata: None,
         };
         let post_state = StateRoot {
             block_ref: target_ref,
-            root_hash: target_hash,  // Use block hash as target state root
+            root_hash: target_hash,
             metadata: None,
         };
 
         Self {
-            chain_id: source_chain_id,
+            chain_id,
             block_height: source_height,
             pre_state,
             post_state,
-            transition_proof: if data.is_empty() { None } else { Some(data) },
+            transition_proof: Some(data),
             metadata: TransitionMetadata {
                 timestamp: SystemTime::now()
                     .duration_since(SystemTime::UNIX_EPOCH)

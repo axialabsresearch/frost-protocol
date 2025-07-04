@@ -176,6 +176,7 @@ async fn test_chain_specific_validation() {
     };
     
     let state_transition = StateTransition::new(
+        source_chain.clone(),
         source,
         target,
         vec![4, 5, 6],

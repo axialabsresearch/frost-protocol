@@ -207,6 +207,7 @@ mod tests {
 
     #[test]
     fn test_state_transition_validation() {
+        let chain_id = ChainId::new("test-chain");
         let source = BlockId::Composite {
             number: 1,
             hash: [0; 32],
@@ -217,6 +218,7 @@ mod tests {
         };
         
         let transition = StateTransition::new(
+            chain_id.clone(),
             source,
             target,
             vec![1, 2, 3],
@@ -224,6 +226,7 @@ mod tests {
         assert!(transition.validate());
 
         let invalid_transition = StateTransition::new(
+            chain_id,
             BlockId::Number(0),
             BlockId::Number(0),
             vec![],
