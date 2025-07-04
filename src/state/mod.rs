@@ -40,11 +40,26 @@ The state system consists of several key components:
 
 1. **State Transition**
    ```rust
+   use frost_protocol::state::{BlockId, StateTransition};
+   
    pub struct StateTransition {
        source: BlockId,
        target: BlockId,
        state_data: Vec<u8>,
    }
+
+   // Example usage:
+   # fn main() {
+   let source = BlockId::Number(1000);
+   let target = BlockId::Number(1001);
+   let data = vec![1, 2, 3];
+   let transition = StateTransition::new(
+       frost_protocol::state::ChainId::new("ethereum"),
+       source,
+       target,
+       data
+   );
+   # }
    ```
    - State changes
    - Transition validation
@@ -53,10 +68,32 @@ The state system consists of several key components:
 
 2. **State Proof**
    ```rust
+   use frost_protocol::state::{StateTransition, StateProof, proof::ProofData};
+   use std::time::SystemTime;
+
    pub struct StateProof {
        transition: StateTransition,
        proof: ProofData,
    }
+
+   // Example usage:
+   # fn main() {
+   let transition = StateTransition::new(
+       frost_protocol::state::ChainId::new("ethereum"),
+       BlockId::Number(1000),
+       BlockId::Number(1001),
+       vec![1, 2, 3]
+   );
+   let proof_data = ProofData {
+       proof_type: frost_protocol::state::proof::ProofType::Basic,
+       data: vec![1, 2, 3],
+       metadata: None,
+       generated_at: SystemTime::now(),
+       expires_at: None,
+       version: 1,
+   };
+   let proof = StateProof::new(transition, proof_data);
+   # }
    ```
    - Proof generation
    - Verification
@@ -65,11 +102,23 @@ The state system consists of several key components:
 
 3. **State Types**
    ```rust
+   use frost_protocol::state::BlockId;
+
    pub enum BlockId {
        Hash([u8; 32]),
        Number(u64),
        Composite { number: u64, hash: [u8; 32] },
    }
+
+   // Example usage:
+   # fn main() {
+   let block_by_number = BlockId::Number(1000);
+   let block_by_hash = BlockId::Hash([0; 32]);
+   let block_composite = BlockId::Composite {
+       number: 1000,
+       hash: [0; 32],
+   };
+   # }
    ```
    - Block identification
    - Chain references
@@ -210,11 +259,11 @@ mod tests {
         let chain_id = ChainId::new("test-chain");
         let source = BlockId::Composite {
             number: 1,
-            hash: [0; 32],
+            hash: [0; 32],  // Source hash all zeros
         };
         let target = BlockId::Composite {
-            number: 1,
-            hash: [0; 32],
+            number: 2,
+            hash: [1; 32],  // Target hash all ones
         };
         
         let transition = StateTransition::new(
@@ -225,11 +274,20 @@ mod tests {
         );
         assert!(transition.validate());
 
+        // Create invalid transition with same hash (will fail validation)
+        let invalid_source = BlockId::Composite {
+            number: 1,
+            hash: [0; 32],
+        };
+        let invalid_target = BlockId::Composite {
+            number: 2,  // Valid height difference
+            hash: [0; 32],  // Same hash as source - should fail validation
+        };
         let invalid_transition = StateTransition::new(
             chain_id,
-            BlockId::Number(0),
-            BlockId::Number(0),
-            vec![],
+            invalid_source,
+            invalid_target,
+            vec![1],  // Valid data
         );
         assert!(!invalid_transition.validate());
     }

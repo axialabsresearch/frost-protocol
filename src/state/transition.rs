@@ -41,6 +41,15 @@ The transition system implements several key components:
 
 1. **State Transition**
    ```rust
+   use frost_protocol::state::{
+       ChainId,
+       StateRoot,
+       BlockId,
+       transition::{StateTransition, TransitionMetadata, ProofType},
+   };
+   use std::time::SystemTime;
+   use serde_json::json;
+
    pub struct StateTransition {
        pub chain_id: ChainId,
        pub block_height: u64,
@@ -49,28 +58,68 @@ The transition system implements several key components:
        pub transition_proof: Option<Vec<u8>>,
        pub metadata: TransitionMetadata,
    }
+
+   // Example usage:
+   # fn main() {
+   let chain_id = ChainId::new("ethereum");
+   let metadata = TransitionMetadata {
+       timestamp: SystemTime::now()
+           .duration_since(SystemTime::UNIX_EPOCH)
+           .unwrap()
+           .as_secs(),
+       version: 1,
+       proof_type: ProofType::Basic,
+       chain_specific: Some(json!({
+           "network": "mainnet",
+           "finalized": true
+       })),
+   };
+
+   let transition = StateTransition {
+       chain_id,
+       block_height: 1000,
+       pre_state: StateRoot::new([0; 32]),
+       post_state: StateRoot::new([1; 32]),
+       transition_proof: Some(vec![1, 2, 3]),
+       metadata,
+   };
+   # }
    ```
-   - Chain context
-   - Block tracking
-   - State management
-   - Proof handling
 
 2. **Transition Metadata**
    ```rust
+   use frost_protocol::state::transition::{TransitionMetadata, ProofType};
+   use std::time::SystemTime;
+   use serde_json::json;
+
    pub struct TransitionMetadata {
        pub timestamp: u64,
        pub version: u32,
        pub proof_type: ProofType,
        pub chain_specific: Option<serde_json::Value>,
    }
+
+   // Example usage:
+   # fn main() {
+   let metadata = TransitionMetadata {
+       timestamp: SystemTime::now()
+           .duration_since(SystemTime::UNIX_EPOCH)
+           .unwrap()
+           .as_secs(),
+       version: 1,
+       proof_type: ProofType::Basic,
+       chain_specific: Some(json!({
+           "network": "mainnet",
+           "finalized": true
+       })),
+   };
+   # }
    ```
-   - Time tracking
-   - Version control
-   - Proof typing
-   - Chain data
 
 3. **Proof System**
    ```rust
+   use frost_protocol::state::transition::ProofType;
+
    pub enum ProofType {
        ZK,
        Merkle,
@@ -78,11 +127,14 @@ The transition system implements several key components:
        Basic,
        Custom(String),
    }
+
+   // Example usage:
+   # fn main() {
+   let basic_proof = ProofType::Basic;
+   let merkle_proof = ProofType::Merkle;
+   let custom_proof = ProofType::Custom("MyCustomProof".to_string());
+   # }
    ```
-   - Proof types
-   - Verification
-   - Generation
-   - Validation
 
 ## Features
 
@@ -228,6 +280,7 @@ use async_trait::async_trait;
 use crate::state::{ChainId, StateRoot, StateError, BlockId, BlockRef};
 use crate::Result;
 use std::time::SystemTime;
+use serde_json::json;
 
 /// State transition representation for cross-chain state management
 #[derive(Debug, Clone, Serialize, Deserialize)]
