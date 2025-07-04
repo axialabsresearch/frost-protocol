@@ -242,27 +242,52 @@ pub struct StateTransition {
 
 impl StateTransition {
     /// Create a new state transition
-    pub fn new(source: BlockId, _target: BlockId, data: Vec<u8>) -> Self {
-        let chain_id = ChainId::new("default");
-        let block_height = match source {
-            BlockId::Number(n) => n,
-            BlockId::Composite { number, .. } => number,
-            BlockId::Hash(_) => 0,
+    pub fn new(source: BlockId, target: BlockId, data: Vec<u8>) -> Self {
+        // Validate data is not empty
+        if data.is_empty() {
+            panic!("State transition data cannot be empty");
+        }
+
+        // Extract source block info
+        let (source_chain_id, source_height, source_hash) = match source {
+            BlockId::Number(n) => (ChainId::new("ethereum"), n, [0; 32]),
+            BlockId::Composite { number, hash } => (ChainId::new("ethereum"), number, hash),
+            BlockId::Hash(hash) => (ChainId::new("ethereum"), 0, hash),
         };
-        
+
+        // Extract target block info
+        let (target_height, target_hash) = match target {
+            BlockId::Number(n) => (n, [1; 32]),  // Use dummy hash if only number provided
+            BlockId::Composite { number, hash } => (number, hash),
+            BlockId::Hash(hash) => (source_height + 1, hash),  // Assume sequential if only hash provided
+        };
+
+        // Validate block heights
+        if target_height <= source_height {
+            panic!("Target block height must be greater than source block height");
+        }
+
+        // Create block references with actual hashes
+        let source_ref = BlockRef::new(source_chain_id.clone(), source_height, source_hash);
+        let target_ref = BlockRef::new(source_chain_id.clone(), target_height, target_hash);
+
+        // Create state roots
+        let pre_state = StateRoot {
+            block_ref: source_ref,
+            root_hash: source_hash,  // Use block hash as initial state root
+            metadata: None,
+        };
+        let post_state = StateRoot {
+            block_ref: target_ref,
+            root_hash: target_hash,  // Use block hash as target state root
+            metadata: None,
+        };
+
         Self {
-            chain_id,
-            block_height,
-            pre_state: StateRoot {
-                block_ref: BlockRef::default(),
-                root_hash: [0; 32],
-                metadata: None,
-            },
-            post_state: StateRoot {
-                block_ref: BlockRef::default(),
-                root_hash: [0; 32],
-                metadata: None,
-            },
+            chain_id: source_chain_id,
+            block_height: source_height,
+            pre_state,
+            post_state,
             transition_proof: Some(data),
             metadata: TransitionMetadata {
                 timestamp: SystemTime::now()
@@ -276,12 +301,29 @@ impl StateTransition {
         }
     }
 
-    /// Validate state transition
+    /// Validate the transition
     pub fn validate(&self) -> bool {
-        // Basic validation for v0
-        self.transition_proof.as_ref().map_or(false, |p| !p.is_empty()) &&
-        !self.chain_id.to_string().is_empty() &&
-        self.block_height > 0
+        // Check that data is not empty
+        if self.transition_proof.is_none() || self.transition_proof.as_ref().unwrap().is_empty() {
+            return false;
+        }
+
+        // Check that pre and post states are different
+        if self.pre_state.root_hash == self.post_state.root_hash {
+            return false;
+        }
+
+        // Check that chain IDs match
+        if self.pre_state.block_ref.chain_id != self.post_state.block_ref.chain_id {
+            return false;
+        }
+
+        // Check that block heights are sequential
+        if self.post_state.block_ref.number != self.pre_state.block_ref.number + 1 {
+            return false;
+        }
+
+        true
     }
 }
 
