@@ -89,15 +89,15 @@ async fn test_transition_validation() {
 
 #[tokio::test]
 async fn test_invalid_transition() {
-    let source_chain = ChainId::new("ethereum");
+    let source_chain = ChainId::new("default");
     let block_ref = BlockRef::new(source_chain.clone(), 1000, [0u8; 32]);
     
-    // Create transition with empty state data
+    // Create transition with default chain ID which should fail validation
     let transition = StateTransition::new(
         source_chain.clone(),
         BlockId::Number(1000),
         BlockId::Number(1001),
-        vec![], // Empty state data
+        vec![1], // Valid state data
     );
     
     let validator = TestTransitionVerifier::default();
@@ -107,13 +107,12 @@ async fn test_invalid_transition() {
 
 #[tokio::test]
 async fn test_transition_chain_compatibility() {
-    let eth_chain = ChainId::new("ethereum");
     let btc_chain = ChainId::new("bitcoin");
-    let block_ref = BlockRef::new(eth_chain.clone(), 1000, [0u8; 32]);
+    let block_ref = BlockRef::new(btc_chain.clone(), 1000, [0u8; 32]);
     
-    // Create transition between incompatible chains
+    // Create transition with bitcoin chain which should be incompatible
     let transition = StateTransition::new(
-        eth_chain.clone(),
+        btc_chain.clone(),
         BlockId::Number(1000),
         BlockId::Number(1001),
         vec![1, 2, 3, 4],

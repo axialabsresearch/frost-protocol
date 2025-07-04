@@ -334,7 +334,7 @@ async fn test_state_proof_verification() {
             number: 1001,
             hash: [0u8; 32],
         },
-        vec![],
+        vec![1, 2, 3],  // Valid state data
     );
 
     let proof = StateProof {

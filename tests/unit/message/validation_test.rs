@@ -171,7 +171,7 @@ async fn test_chain_specific_validation() {
     };
     
     let target = BlockId::Composite {
-        number: 1000,
+        number: 1001,
         hash: [0u8; 32],
     };
     
