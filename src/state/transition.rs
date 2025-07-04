@@ -243,11 +243,6 @@ pub struct StateTransition {
 impl StateTransition {
     /// Create a new state transition
     pub fn new(source: BlockId, target: BlockId, data: Vec<u8>) -> Self {
-        // Validate data is not empty
-        if data.is_empty() {
-            panic!("State transition data cannot be empty");
-        }
-
         // Extract source block info
         let (source_chain_id, source_height, source_hash) = match source {
             BlockId::Number(n) => (ChainId::new("ethereum"), n, [0; 32]),
@@ -261,11 +256,6 @@ impl StateTransition {
             BlockId::Composite { number, hash } => (number, hash),
             BlockId::Hash(hash) => (source_height + 1, hash),  // Assume sequential if only hash provided
         };
-
-        // Validate block heights
-        if target_height <= source_height {
-            panic!("Target block height must be greater than source block height");
-        }
 
         // Create block references with actual hashes
         let source_ref = BlockRef::new(source_chain_id.clone(), source_height, source_hash);
@@ -288,7 +278,7 @@ impl StateTransition {
             block_height: source_height,
             pre_state,
             post_state,
-            transition_proof: Some(data),
+            transition_proof: if data.is_empty() { None } else { Some(data) },
             metadata: TransitionMetadata {
                 timestamp: SystemTime::now()
                     .duration_since(SystemTime::UNIX_EPOCH)
@@ -319,7 +309,18 @@ impl StateTransition {
         }
 
         // Check that block heights are sequential
-        if self.post_state.block_ref.number != self.pre_state.block_ref.number + 1 {
+        if self.post_state.block_ref.number <= self.pre_state.block_ref.number {
+            return false;
+        }
+
+        // Check that block height matches source block
+        if self.block_height != self.pre_state.block_ref.number {
+            return false;
+        }
+
+        // Check that chain ID matches block refs
+        if self.chain_id != self.pre_state.block_ref.chain_id ||
+           self.chain_id != self.post_state.block_ref.chain_id {
             return false;
         }
 

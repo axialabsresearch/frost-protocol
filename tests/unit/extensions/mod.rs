@@ -206,7 +206,7 @@ async fn test_extension_dependencies() {
 
 #[tokio::test]
 async fn test_extension_compatibility() {
-    let mut manager = DefaultExtensionManager::new();
+    let manager = DefaultExtensionManager::new();
     
     // Test compatible extension
     let extension = Box::new(MockExtension::new("test", "1.0.0", vec![]));
