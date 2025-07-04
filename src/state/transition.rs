@@ -41,6 +41,15 @@ The transition system implements several key components:
 
 1. **State Transition**
    ```rust
+   use frost_protocol::state::{
+       ChainId,
+       StateRoot,
+       BlockId,
+       transition::{StateTransition, TransitionMetadata, ProofType},
+   };
+   use std::time::SystemTime;
+   use serde_json::json;
+
    pub struct StateTransition {
        pub chain_id: ChainId,
        pub block_height: u64,
@@ -49,28 +58,68 @@ The transition system implements several key components:
        pub transition_proof: Option<Vec<u8>>,
        pub metadata: TransitionMetadata,
    }
+
+   // Example usage:
+   # fn main() {
+   let chain_id = ChainId::new("ethereum");
+   let metadata = TransitionMetadata {
+       timestamp: SystemTime::now()
+           .duration_since(SystemTime::UNIX_EPOCH)
+           .unwrap()
+           .as_secs(),
+       version: 1,
+       proof_type: ProofType::Basic,
+       chain_specific: Some(json!({
+           "network": "mainnet",
+           "finalized": true
+       })),
+   };
+
+   let transition = StateTransition {
+       chain_id,
+       block_height: 1000,
+       pre_state: StateRoot::new([0; 32]),
+       post_state: StateRoot::new([1; 32]),
+       transition_proof: Some(vec![1, 2, 3]),
+       metadata,
+   };
+   # }
    ```
-   - Chain context
-   - Block tracking
-   - State management
-   - Proof handling
 
 2. **Transition Metadata**
    ```rust
+   use frost_protocol::state::transition::{TransitionMetadata, ProofType};
+   use std::time::SystemTime;
+   use serde_json::json;
+
    pub struct TransitionMetadata {
        pub timestamp: u64,
        pub version: u32,
        pub proof_type: ProofType,
        pub chain_specific: Option<serde_json::Value>,
    }
+
+   // Example usage:
+   # fn main() {
+   let metadata = TransitionMetadata {
+       timestamp: SystemTime::now()
+           .duration_since(SystemTime::UNIX_EPOCH)
+           .unwrap()
+           .as_secs(),
+       version: 1,
+       proof_type: ProofType::Basic,
+       chain_specific: Some(json!({
+           "network": "mainnet",
+           "finalized": true
+       })),
+   };
+   # }
    ```
-   - Time tracking
-   - Version control
-   - Proof typing
-   - Chain data
 
 3. **Proof System**
    ```rust
+   use frost_protocol::state::transition::ProofType;
+
    pub enum ProofType {
        ZK,
        Merkle,
@@ -78,11 +127,14 @@ The transition system implements several key components:
        Basic,
        Custom(String),
    }
+
+   // Example usage:
+   # fn main() {
+   let basic_proof = ProofType::Basic;
+   let merkle_proof = ProofType::Merkle;
+   let custom_proof = ProofType::Custom("MyCustomProof".to_string());
+   # }
    ```
-   - Proof types
-   - Verification
-   - Generation
-   - Validation
 
 ## Features
 
@@ -228,8 +280,9 @@ use async_trait::async_trait;
 use crate::state::{ChainId, StateRoot, StateError, BlockId, BlockRef};
 use crate::Result;
 use std::time::SystemTime;
+use serde_json::json;
 
-/// State transition representation
+/// State transition representation for cross-chain state management
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StateTransition {
     pub chain_id: ChainId,
@@ -241,28 +294,59 @@ pub struct StateTransition {
 }
 
 impl StateTransition {
-    /// Create a new state transition
-    pub fn new(source: BlockId, _target: BlockId, data: Vec<u8>) -> Self {
-        let chain_id = ChainId::new("default");
-        let block_height = match source {
-            BlockId::Number(n) => n,
-            BlockId::Composite { number, .. } => number,
-            BlockId::Hash(_) => 0,
+    /// Create a new state transition between chains
+    /// 
+    /// # Arguments
+    /// * `chain_id` - The identifier of the chain this transition belongs to
+    /// * `source` - The source block identifier
+    /// * `target` - The target block identifier
+    /// * `data` - The transition proof data
+    pub fn new(chain_id: ChainId, source: BlockId, target: BlockId, data: Vec<u8>) -> Self {
+        // Validate data is not empty
+        if data.is_empty() {
+            panic!("State transition data cannot be empty");
+        }
+
+        // Extract source block info
+        let (source_height, source_hash) = match source {
+            BlockId::Number(n) => (n, [0; 32]),
+            BlockId::Composite { number, hash } => (number, hash),
+            BlockId::Hash(hash) => (0, hash),
         };
-        
+
+        // Extract target block info
+        let (target_height, target_hash) = match target {
+            BlockId::Number(n) => (n, [1; 32]),
+            BlockId::Composite { number, hash } => (number, hash),
+            BlockId::Hash(hash) => (source_height + 1, hash),
+        };
+
+        // Validate block heights
+        if target_height <= source_height {
+            panic!("Target block height must be greater than source block height");
+        }
+
+        // Create block references
+        let source_ref = BlockRef::new(chain_id.clone(), source_height, source_hash);
+        let target_ref = BlockRef::new(chain_id.clone(), target_height, target_hash);
+
+        // Create state roots
+        let pre_state = StateRoot {
+            block_ref: source_ref,
+            root_hash: source_hash,
+            metadata: None,
+        };
+        let post_state = StateRoot {
+            block_ref: target_ref,
+            root_hash: target_hash,
+            metadata: None,
+        };
+
         Self {
             chain_id,
-            block_height,
-            pre_state: StateRoot {
-                block_ref: BlockRef::default(),
-                root_hash: [0; 32],
-                metadata: None,
-            },
-            post_state: StateRoot {
-                block_ref: BlockRef::default(),
-                root_hash: [0; 32],
-                metadata: None,
-            },
+            block_height: source_height,
+            pre_state,
+            post_state,
             transition_proof: Some(data),
             metadata: TransitionMetadata {
                 timestamp: SystemTime::now()
@@ -276,12 +360,40 @@ impl StateTransition {
         }
     }
 
-    /// Validate state transition
+    /// Validate the transition
     pub fn validate(&self) -> bool {
-        // Basic validation for v0
-        self.transition_proof.as_ref().map_or(false, |p| !p.is_empty()) &&
-        !self.chain_id.to_string().is_empty() &&
-        self.block_height > 0
+        // Check that data is not empty
+        if self.transition_proof.is_none() || self.transition_proof.as_ref().unwrap().is_empty() {
+            return false;
+        }
+
+        // Check that pre and post states are different
+        if self.pre_state.root_hash == self.post_state.root_hash {
+            return false;
+        }
+
+        // Check that chain IDs match
+        if self.pre_state.block_ref.chain_id != self.post_state.block_ref.chain_id {
+            return false;
+        }
+
+        // Check that block heights are sequential
+        if self.post_state.block_ref.number <= self.pre_state.block_ref.number {
+            return false;
+        }
+
+        // Check that block height matches source block
+        if self.block_height != self.pre_state.block_ref.number {
+            return false;
+        }
+
+        // Check that chain ID matches block refs
+        if self.chain_id != self.pre_state.block_ref.chain_id ||
+           self.chain_id != self.post_state.block_ref.chain_id {
+            return false;
+        }
+
+        true
     }
 }
 

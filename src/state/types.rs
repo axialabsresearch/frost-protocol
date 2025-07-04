@@ -38,42 +38,79 @@ The `StateRoot` struct manages:
 
 1. **Chain and Block Relationship**
    ```rust
+   use frost_protocol::state::{ChainId, BlockRef};
+
    pub struct BlockRef {
        pub chain_id: ChainId,
        pub number: u64,
        pub hash: [u8; 32],
    }
+
+   // Example usage:
+   # fn main() {
+   let chain_id = ChainId::new("ethereum");
+   let block_ref = BlockRef::new(
+       chain_id,
+       1000,
+       [0; 32],
+   );
+
+   assert_eq!(block_ref.number(), 1000);
+   assert_eq!(block_ref.hash(), &[0; 32]);
+   # }
    ```
-   - Chain context
-   - Block identification
-   - Hash verification
-   - Number tracking
 
 2. **Block Identification**
    ```rust
+   use frost_protocol::state::BlockId;
+
    pub enum BlockId {
        Hash([u8; 32]),
        Number(u64),
        Composite { number: u64, hash: [u8; 32] },
    }
+
+   // Example usage:
+   # fn main() {
+   let by_hash = BlockId::Hash([0; 32]);
+   let by_number = BlockId::Number(1000);
+   let composite = BlockId::Composite {
+       number: 1000,
+       hash: [0; 32],
+   };
+   # }
    ```
-   - Multiple formats
-   - Flexible referencing
-   - Composite support
-   - Hash handling
 
 3. **State Management**
    ```rust
+   use frost_protocol::state::{StateRoot, BlockRef, ChainId};
+   use serde_json::json;
+
    pub struct StateRoot {
        pub block_ref: BlockRef,
        pub root_hash: [u8; 32],
        pub metadata: Option<serde_json::Value>,
    }
+
+   // Example usage:
+   # fn main() {
+   let chain_id = ChainId::new("ethereum");
+   let block_ref = BlockRef::new(
+       chain_id,
+       1000,
+       [0; 32],
+   );
+
+   let state_root = StateRoot {
+       block_ref,
+       root_hash: [1; 32],
+       metadata: Some(json!({
+           "finalized": true,
+           "timestamp": 1234567890
+       })),
+   };
+   # }
    ```
-   - Block referencing
-   - Hash management
-   - Metadata support
-   - State tracking
 
 ## Features
 

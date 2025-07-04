@@ -41,6 +41,10 @@ The proof system implements several key components:
 
 1. **Proof Data**
    ```rust
+   use frost_protocol::state::proof::{ProofData, ProofType};
+   use std::time::SystemTime;
+   use serde_json::json;
+
    pub struct ProofData {
        pub proof_type: ProofType,
        pub data: Vec<u8>,
@@ -49,37 +53,103 @@ The proof system implements several key components:
        pub expires_at: Option<SystemTime>,
        pub version: u32,
    }
+
+   // Example usage:
+   # fn main() {
+   let proof_data = ProofData {
+       proof_type: ProofType::Basic,
+       data: vec![1, 2, 3],
+       metadata: Some(json!({
+           "chain": "ethereum",
+           "block": 1000
+       })),
+       generated_at: SystemTime::now(),
+       expires_at: None,
+       version: 1,
+   };
+   # }
    ```
-   - Proof content
-   - Metadata handling
-   - Time tracking
-   - Version control
 
 2. **State Proof**
    ```rust
+   use frost_protocol::state::{
+       proof::{StateProof, ProofData, ProofType, VerificationResult},
+       StateTransition,
+       ChainId,
+       BlockId,
+   };
+   use std::time::SystemTime;
+
    pub struct StateProof {
        pub transition: StateTransition,
        pub proof: ProofData,
        pub verification_history: Vec<VerificationResult>,
    }
+
+   // Example usage:
+   # fn main() {
+   let transition = StateTransition::new(
+       ChainId::new("ethereum"),
+       BlockId::Number(1000),
+       BlockId::Number(1001),
+       vec![1, 2, 3],
+   );
+
+   let proof_data = ProofData {
+       proof_type: ProofType::Basic,
+       data: vec![1, 2, 3],
+       metadata: None,
+       generated_at: SystemTime::now(),
+       expires_at: None,
+       version: 1,
+   };
+
+   let proof = StateProof::new(transition, proof_data);
+   # }
    ```
-   - Transition binding
-   - Proof storage
-   - History tracking
-   - Result management
 
 3. **Proof Registry**
    ```rust
+   use frost_protocol::state::proof::{ProofRegistry, ProofType, VerificationResult};
+   use dashmap::DashMap;
+   use std::sync::Arc;
+
    pub struct ProofRegistry {
        generators: DashMap<ProofType, Arc<dyn ProofGenerator>>,
        verifiers: DashMap<ProofType, Arc<dyn ProofVerifier>>,
        verification_cache: DashMap<String, VerificationResult>,
    }
+
+   // Example usage:
+   # fn main() {
+   let registry = ProofRegistry::new();
+   
+   // Register a custom generator
+   struct BasicGenerator;
+   impl ProofGenerator for BasicGenerator {
+       fn proof_type(&self) -> ProofType {
+           ProofType::Basic
+       }
+
+       async fn generate_proof(
+           &self,
+           transition: &StateTransition,
+           _context: Option<&serde_json::Value>,
+       ) -> Result<ProofData, StateError> {
+           Ok(ProofData {
+               proof_type: ProofType::Basic,
+               data: vec![1, 2, 3],
+               metadata: None,
+               generated_at: SystemTime::now(),
+               expires_at: None,
+               version: 1,
+           })
+       }
+   }
+
+   registry.register_generator(Arc::new(BasicGenerator));
+   # }
    ```
-   - Generator management
-   - Verifier management
-   - Cache handling
-   - Concurrent access
 
 ## Features
 

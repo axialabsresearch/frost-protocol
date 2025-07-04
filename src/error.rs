@@ -44,6 +44,7 @@ The error system implements several key components:
 
 1. **Core Error Type**
    ```rust
+   use frost_protocol::finality::FinalityError;
    pub enum Error {
        Message(String),
        State(String),

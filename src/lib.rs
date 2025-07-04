@@ -265,5 +265,5 @@ pub use routing::MessageRouter;
 pub type Result<T> = std::result::Result<T, Error>;
 pub use error::Error;
 
-mod error;
+pub mod error;
 

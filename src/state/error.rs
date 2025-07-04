@@ -41,36 +41,60 @@ The error system implements several key components:
 
 1. **Error Severity**
    ```rust
+   use frost_protocol::state::error::ErrorSeverity;
+
    pub enum ErrorSeverity {
        Warning,
        Error,
        Critical,
    }
+
+   // Example usage:
+   # fn main() {
+   let severity = ErrorSeverity::Warning;
+   assert!(severity < ErrorSeverity::Error);
+   assert!(severity < ErrorSeverity::Critical);
+   # }
    ```
-   - Severity levels
-   - Comparison logic
-   - Recovery guidance
-   - Operation handling
 
 2. **State Errors**
    ```rust
+   use frost_protocol::state::{error::StateError, BlockRef, ChainId};
+
    pub enum StateError {
        InvalidTransition(String),
        InvalidProof(String),
        ProofVerificationFailed(String),
        InvalidBlockRef(String),
-       RootMismatch { ... },
+       RootMismatch {
+           block_ref: BlockRef,
+           expected: String,
+           actual: String,
+       },
        ChainSpecific(String),
        Internal(String),
    }
+
+   // Example usage:
+   # fn main() {
+   let block_ref = BlockRef::new(
+       ChainId::new("ethereum"),
+       1000,
+       [0; 32]
+   );
+   let error = StateError::RootMismatch {
+       block_ref,
+       expected: "0x123...".to_string(),
+       actual: "0x456...".to_string(),
+   };
+   # }
    ```
-   - Error types
-   - Error messages
-   - Error context
-   - Recovery options
 
 3. **Proof Errors**
    ```rust
+   use frost_protocol::state::error::{ProofError, ProofErrorCategory, ErrorSeverity, ChainErrorContext, RetryGuidance};
+   use std::time::Duration;
+
    pub struct ProofError {
        category: ProofErrorCategory,
        severity: ErrorSeverity,
@@ -79,11 +103,27 @@ The error system implements several key components:
        retry: RetryGuidance,
        cause: Option<Box<ProofError>>,
    }
+
+   // Example usage:
+   # fn main() {
+   let error = ProofError::new(
+       ProofErrorCategory::Validation,
+       ErrorSeverity::Error,
+       "Invalid proof format"
+   )
+   .with_context(ChainErrorContext {
+       chain_id: "ethereum".to_string(),
+       block_number: 1000,
+       metadata: None,
+   })
+   .with_retry(RetryGuidance {
+       retryable: true,
+       retry_after: Some(Duration::from_secs(60)),
+       max_retries: Some(3),
+       alternatives: vec!["Try different proof type".to_string()],
+   });
+   # }
    ```
-   - Error categorization
-   - Severity tracking
-   - Context management
-   - Retry handling
 
 ## Features
 

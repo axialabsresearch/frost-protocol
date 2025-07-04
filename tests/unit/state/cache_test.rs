@@ -4,6 +4,7 @@ use frost_protocol::{
         proof::{StateProof, VerificationResult, ProofData, ProofType},
         transition::StateTransition,
         types::BlockId,
+        ChainId,
     },
 };
 
@@ -13,7 +14,9 @@ use tokio::time::timeout;
 
 fn dummy_state_proof(chain: &str, block: u64) -> StateProof {
     // Create transition with proper BlockId parameters
+    let chain_id = ChainId::new(chain);
     let transition = StateTransition::new(
+        chain_id.clone(),
         BlockId::Number(block),
         BlockId::Number(block + 1),
         vec![1, 2, 3, 4],

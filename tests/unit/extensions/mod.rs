@@ -206,7 +206,7 @@ async fn test_extension_dependencies() {
 
 #[tokio::test]
 async fn test_extension_compatibility() {
-    let mut manager = DefaultExtensionManager::new();
+    let manager = DefaultExtensionManager::new();
     
     // Test compatible extension
     let extension = Box::new(MockExtension::new("test", "1.0.0", vec![]));
@@ -276,6 +276,7 @@ async fn test_extension_state_transition() {
     };
 
     let transition = StateTransition::new(
+        frost_protocol::state::ChainId::new("test-chain"),
         source,
         target,
         vec![1, 2, 3],
@@ -324,6 +325,7 @@ async fn test_state_proof_verification() {
     let ext = manager.get_extension(&id).await.unwrap().unwrap();
 
     let transition = StateTransition::new(
+        frost_protocol::state::ChainId::new("test-chain"),
         frost_protocol::state::BlockId::Composite {
             number: 1000,
             hash: [0u8; 32],
@@ -332,7 +334,7 @@ async fn test_state_proof_verification() {
             number: 1001,
             hash: [0u8; 32],
         },
-        vec![],
+        vec![1, 2, 3],  // Valid state data
     );
 
     let proof = StateProof {
