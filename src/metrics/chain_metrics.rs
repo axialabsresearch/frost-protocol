@@ -1,3 +1,138 @@
+/*!
+# Chain Metrics Module
+
+This module provides chain-specific metrics collection and monitoring functionality
+for the FROST protocol. It implements metrics tracking for individual chains and
+aggregates metrics across multiple chains.
+
+## Core Components
+
+### Chain Metrics
+- Block metrics
+- Message metrics
+- Performance data
+- Chain-specific data
+
+### Metrics Collection
+- Block tracking
+- Message tracking
+- Performance monitoring
+- Data aggregation
+
+### Chain Aggregation
+- Multi-chain metrics
+- Collector management
+- Data consolidation
+- Chain monitoring
+
+## Architecture
+
+The chain metrics system consists of several key components:
+
+1. **Chain Metrics**
+   ```rust
+   pub struct ChainMetrics {
+       chain_id: String,
+       avg_block_time: f64,
+       avg_finality_time: f64,
+       total_blocks: u64,
+       total_messages: u64,
+       failed_messages: u64,
+       avg_message_size: f64,
+       chain_data: Value,
+   }
+   ```
+   - Chain identity
+   - Block metrics
+   - Message metrics
+   - Custom data
+
+2. **Metrics Collector**
+   ```rust
+   pub trait ChainMetricsCollector: Send + Sync {
+       async fn record_block(&mut self, block_time: Duration, finality_time: Duration);
+       async fn record_message(&mut self, size: usize, success: bool);
+       async fn get_metrics(&self) -> ChainMetrics;
+       async fn update_chain_data(&mut self, data: Value);
+   }
+   ```
+   - Block recording
+   - Message tracking
+   - Metrics access
+   - Data updates
+
+3. **Metrics Aggregator**
+   ```rust
+   pub struct ChainMetricsAggregator {
+       collectors: Arc<RwLock<HashMap<String, Box<dyn ChainMetricsCollector>>>>,
+   }
+   ```
+   - Collector management
+   - Chain tracking
+   - Data aggregation
+   - Metrics access
+
+## Features
+
+### Block Metrics
+- Block time tracking
+- Finality monitoring
+- Block counting
+- Performance data
+
+### Message Metrics
+- Message tracking
+- Size monitoring
+- Success rates
+- Performance data
+
+### Chain Data
+- Custom metrics
+- Chain-specific data
+- Performance tracking
+- Health monitoring
+
+### Aggregation
+- Multi-chain tracking
+- Data consolidation
+- Chain monitoring
+- Performance analysis
+
+## Best Practices
+
+1. **Metrics Collection**
+   - Regular updates
+   - Accurate timing
+   - Data validation
+   - Resource limits
+
+2. **Chain Monitoring**
+   - Health checks
+   - Performance tracking
+   - Resource usage
+   - Alert thresholds
+
+3. **Data Management**
+   - Efficient storage
+   - Regular updates
+   - Data cleanup
+   - Resource usage
+
+4. **Aggregation**
+   - Chain isolation
+   - Data consolidation
+   - Resource efficiency
+   - Update frequency
+
+## Integration
+
+The chain metrics system integrates with:
+1. Block processing
+2. Message handling
+3. Chain management
+4. Performance monitoring
+*/
+
 #![allow(unused_variables)]
 #![allow(unused_imports)]
 
@@ -63,20 +198,28 @@ pub trait ChainMetricsCollector: Send + Sync {
     async fn update_chain_data(&mut self, data: serde_json::Value);
 }
 
-/// Ethereum metrics collector
-pub struct EthereumMetrics {
+/// Generic chain metrics implementation
+pub struct GenericChainMetrics {
     metrics: Arc<RwLock<ChainMetrics>>,
 }
 
-impl EthereumMetrics {
-    pub fn new() -> Self {
+impl GenericChainMetrics {
+    pub fn new(chain_id: impl Into<String>) -> Self {
         let metrics = ChainMetrics {
-            chain_id: "ethereum".into(),
-            chain_data: json!({
-                "gas_used": 0u64,
-                "avg_gas_price": 0u64,
-                "total_value_transferred": "0",
-            }),
+            chain_id: chain_id.into(),
+            ..Default::default()
+        };
+        
+        Self {
+            metrics: Arc::new(RwLock::new(metrics)),
+        }
+    }
+
+    /// Create a new metrics collector with initial chain data
+    pub fn with_chain_data(chain_id: impl Into<String>, chain_data: serde_json::Value) -> Self {
+        let metrics = ChainMetrics {
+            chain_id: chain_id.into(),
+            chain_data,
             ..Default::default()
         };
         
@@ -87,7 +230,7 @@ impl EthereumMetrics {
 }
 
 #[async_trait::async_trait]
-impl ChainMetricsCollector for EthereumMetrics {
+impl ChainMetricsCollector for GenericChainMetrics {
     async fn record_block(&mut self, block_time: Duration, finality_time: Duration) {
         let mut metrics = self.metrics.write().await;
         
@@ -129,68 +272,47 @@ impl ChainMetricsCollector for EthereumMetrics {
     }
 }
 
-/// Cosmos metrics collector
-pub struct CosmosMetrics {
-    metrics: Arc<RwLock<ChainMetrics>>,
+/// Metrics aggregator for multiple chains
+pub struct ChainMetricsAggregator {
+    collectors: Arc<RwLock<HashMap<String, Box<dyn ChainMetricsCollector>>>>,
 }
 
-impl CosmosMetrics {
+impl ChainMetricsAggregator {
     pub fn new() -> Self {
-        let metrics = ChainMetrics {
-            chain_id: "cosmos".into(),
-            chain_data: json!({
-                "gas_used": 0u64,
-                "avg_block_size": 0u64,
-                "total_fees_collected": "0",
-            }),
-            ..Default::default()
-        };
-        
         Self {
-            metrics: Arc::new(RwLock::new(metrics)),
+            collectors: Arc::new(RwLock::new(HashMap::new())),
         }
     }
-}
 
-#[async_trait::async_trait]
-impl ChainMetricsCollector for CosmosMetrics {
-    async fn record_block(&mut self, block_time: Duration, finality_time: Duration) {
-        let mut metrics = self.metrics.write().await;
-        
-        metrics.total_blocks += 1;
-        metrics.avg_block_time = MetricsUtils::update_average(
-            metrics.avg_block_time,
-            block_time.as_secs_f64(),
-            metrics.total_blocks
-        );
-        metrics.avg_finality_time = MetricsUtils::update_average(
-            metrics.avg_finality_time,
-            finality_time.as_secs_f64(),
-            metrics.total_blocks
-        );
+    /// Register a new chain metrics collector
+    pub async fn register_collector(
+        &self,
+        chain_id: impl Into<String>,
+        collector: Box<dyn ChainMetricsCollector>,
+    ) {
+        let mut collectors = self.collectors.write().await;
+        collectors.insert(chain_id.into(), collector);
     }
-    
-    async fn record_message(&mut self, size: usize, success: bool) {
-        let mut metrics = self.metrics.write().await;
-        
-        metrics.total_messages += 1;
-        metrics.avg_message_size = MetricsUtils::update_average(
-            metrics.avg_message_size,
-            size as f64,
-            metrics.total_messages
-        );
-            
-        if !success {
-            metrics.failed_messages += 1;
+
+    /// Get metrics for a specific chain
+    pub async fn get_chain_metrics(&self, chain_id: &str) -> Option<ChainMetrics> {
+        let collectors = self.collectors.read().await;
+        if let Some(collector) = collectors.get(chain_id) {
+            Some(collector.get_metrics().await)
+        } else {
+            None
         }
     }
-    
-    async fn get_metrics(&self) -> ChainMetrics {
-        self.metrics.read().await.clone()
-    }
-    
-    async fn update_chain_data(&mut self, data: serde_json::Value) {
-        let mut metrics = self.metrics.write().await;
-        metrics.chain_data = data;
+
+    /// Get metrics for all chains
+    pub async fn get_all_metrics(&self) -> HashMap<String, ChainMetrics> {
+        let collectors = self.collectors.read().await;
+        let mut all_metrics = HashMap::new();
+        
+        for (chain_id, collector) in collectors.iter() {
+            all_metrics.insert(chain_id.clone(), collector.get_metrics().await);
+        }
+        
+        all_metrics
     }
 } 

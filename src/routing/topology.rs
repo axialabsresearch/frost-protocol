@@ -1,6 +1,218 @@
+/*!
+# Network Topology Implementation
+
+This module provides network topology management for the FROST protocol,
+implementing node relationship tracking, health monitoring, and network analysis.
+
+## Core Components
+
+### Topology Structure
+The network topology tracks:
+- Node relationships
+- Connection states
+- Health metrics
+- Network structure
+
+### Node Management
+Node handling includes:
+- Node addition/removal
+- Connection tracking
+- State management
+- Health monitoring
+
+### Network Analysis
+Network analysis features:
+- Partition detection
+- Density calculation
+- Health assessment
+- Critical node identification
+
+## Architecture
+
+The topology system implements several key components:
+
+1. **Network Structure**
+   ```rust
+   pub struct NetworkTopology {
+       nodes: HashMap<ChainId, TopologyNode>,
+       version: u64,
+       last_updated: u64,
+   }
+   ```
+   - Node storage
+   - Version tracking
+   - Update timing
+   - Relationship mapping
+
+2. **Node Information**
+   ```rust
+   pub struct TopologyNode {
+       pub chain_id: ChainId,
+       pub connections: Vec<ChainId>,
+       pub metadata: NodeMetadata,
+       pub status: NodeStatus,
+   }
+   ```
+   - Node identity
+   - Connection list
+   - Node metadata
+   - Status tracking
+
+3. **Performance Tracking**
+   ```rust
+   pub struct PerformanceMetrics {
+       pub latency_ms: f64,
+       pub throughput: f64,
+       pub reliability: f64,
+       pub last_active: u64,
+   }
+   ```
+   - Latency tracking
+   - Throughput monitoring
+   - Reliability assessment
+   - Activity timing
+
+## Features
+
+### Node Management
+- Node registration
+- Connection tracking
+- State management
+- Health monitoring
+
+### Network Analysis
+- Partition detection
+- Density calculation
+- Health assessment
+- Critical node identification
+
+### Performance Tracking
+- Latency monitoring
+- Throughput tracking
+- Reliability assessment
+- Activity tracking
+
+### Health Management
+- Status tracking
+- Health scoring
+- Problem detection
+- Recovery monitoring
+
+## Best Practices
+
+### Topology Management
+1. Node Handling
+   - Regular updates
+   - State validation
+   - Connection verification
+   - Health checks
+
+2. Network Analysis
+   - Regular assessment
+   - Partition checking
+   - Density monitoring
+   - Critical node tracking
+
+3. Performance Monitoring
+   - Metric collection
+   - Health assessment
+   - Problem detection
+   - Recovery tracking
+
+4. Health Management
+   - Status updates
+   - Score calculation
+   - Issue detection
+   - Recovery procedures
+
+## Integration
+
+### Router Integration
+- Path computation
+- Node selection
+- Health consideration
+- Performance tracking
+
+### Strategy Integration
+- Path finding
+- Load balancing
+- Health awareness
+- Performance optimization
+
+### Metrics Integration
+- Performance tracking
+- Health monitoring
+- Resource usage
+- Error tracking
+
+### Network Integration
+- Node discovery
+- Connection management
+- State tracking
+- Health monitoring
+
+## Performance Considerations
+
+### Resource Management
+- Node storage
+- Connection tracking
+- Metric collection
+- Health monitoring
+
+### Optimization
+- Update frequency
+- Cache usage
+- Resource allocation
+- Performance tracking
+
+### Monitoring
+- Network metrics
+- Node health
+- Connection status
+- Resource usage
+
+### Analysis
+- Partition detection
+- Density calculation
+- Health assessment
+- Critical node identification
+
+## Implementation Notes
+
+### Node Management
+Node handling includes:
+- Registration process
+- Connection tracking
+- State management
+- Health monitoring
+
+### Network Analysis
+Analysis features:
+- Partition detection algorithms
+- Density calculations
+- Health assessments
+- Critical node identification
+
+### Performance Tracking
+Metric collection includes:
+- Latency measurements
+- Throughput tracking
+- Reliability assessment
+- Activity monitoring
+
+### Health Management
+Health tracking includes:
+- Status updates
+- Score calculations
+- Issue detection
+- Recovery monitoring
+*/
+
 use std::collections::HashMap;
 use serde::{Serialize, Deserialize};
 use crate::state::ChainId;
+use std::collections::HashSet;
+use std::collections::VecDeque;
 
 /// Network topology representation
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -197,5 +409,154 @@ impl NetworkTopology {
         }
         
         distribution
+    }
+    
+    /// Check for network partitions
+    pub fn detect_partitions(&self) -> Vec<Vec<ChainId>> {
+        let mut partitions = Vec::new();
+        let mut visited = HashSet::new();
+        
+        for node_id in self.nodes.keys() {
+            if !visited.contains(node_id) {
+                let mut partition = Vec::new();
+                let mut queue = VecDeque::new();
+                
+                queue.push_back(node_id.clone());
+                visited.insert(node_id.clone());
+                
+                while let Some(current) = queue.pop_front() {
+                    partition.push(current.clone());
+                    
+                    if let Some(node) = self.nodes.get(&current) {
+                        for neighbor in &node.connections {
+                            if !visited.contains(neighbor) {
+                                queue.push_back(neighbor.clone());
+                                visited.insert(neighbor.clone());
+                            }
+                        }
+                    }
+                }
+                
+                partitions.push(partition);
+            }
+        }
+        
+        partitions
+    }
+    
+    /// Calculate node health score (0.0-1.0)
+    pub fn node_health(&self, chain_id: &ChainId) -> f64 {
+        if let Some(node) = self.nodes.get(chain_id) {
+            let metrics = &node.metadata.performance_metrics;
+            
+            // Weight different factors
+            let latency_score = 1.0 / (1.0 + metrics.latency_ms / 1000.0);
+            let throughput_score = metrics.throughput / 100.0;
+            let reliability_score = metrics.reliability;
+            
+            // Active nodes get full score
+            let status_score = match node.status {
+                NodeStatus::Active => 1.0,
+                NodeStatus::Degraded => 0.5,
+                NodeStatus::Inactive => 0.0,
+                NodeStatus::Maintenance => 0.0,
+            };
+            
+            // Combine scores with weights
+            let score = 0.3 * latency_score +
+                       0.2 * throughput_score +
+                       0.3 * reliability_score +
+                       0.2 * status_score;
+                       
+            score.min(1.0).max(0.0)
+        } else {
+            0.0
+        }
+    }
+    
+    /// Get critical nodes (high centrality)
+    pub fn critical_nodes(&self) -> Vec<ChainId> {
+        let mut centrality = HashMap::new();
+        
+        // Calculate betweenness centrality
+        for start in self.nodes.keys() {
+            for end in self.nodes.keys() {
+                if start == end {
+                    continue;
+                }
+                
+                let mut visited = HashSet::new();
+                let mut queue = VecDeque::new();
+                let mut paths = HashMap::new();
+                
+                queue.push_back(start.clone());
+                visited.insert(start.clone());
+                paths.insert(start.clone(), vec![start.clone()]);
+                
+                while let Some(current) = queue.pop_front() {
+                    if &current == end {
+                        // Found path, increment centrality for intermediate nodes
+                        let path = paths.get(&current).unwrap();
+                        for node in path.iter().skip(1).take(path.len() - 2) {
+                            *centrality.entry(node.clone()).or_insert(0) += 1;
+                        }
+                    }
+                    
+                    if let Some(node) = self.nodes.get(&current) {
+                        for neighbor in &node.connections {
+                            if !visited.contains(neighbor) {
+                                visited.insert(neighbor.clone());
+                                queue.push_back(neighbor.clone());
+                                
+                                // Extend path
+                                let mut new_path = paths.get(&current).unwrap().clone();
+                                new_path.push(neighbor.clone());
+                                paths.insert(neighbor.clone(), new_path);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Return nodes with high centrality
+        let threshold = (self.nodes.len() as f64 * 0.1).ceil() as usize;
+        let mut critical: Vec<_> = centrality.into_iter()
+            .filter(|(_, count)| *count > threshold)
+            .map(|(node, _)| node)
+            .collect();
+            
+        critical.sort_by_key(|node| self.node_health(node) as i32);
+        critical
+    }
+    
+    /// Get network resilience score (0.0-1.0)
+    pub fn resilience_score(&self) -> f64 {
+        let partitions = self.detect_partitions();
+        let critical = self.critical_nodes();
+        
+        // Factors affecting resilience:
+        // 1. Number of partitions (fewer is better)
+        let partition_score = 1.0 / partitions.len() as f64;
+        
+        // 2. Critical node ratio (fewer is better)
+        let critical_ratio = critical.len() as f64 / self.nodes.len() as f64;
+        let critical_score = 1.0 - critical_ratio;
+        
+        // 3. Average node health
+        let health_score = self.nodes.keys()
+            .map(|node| self.node_health(node))
+            .sum::<f64>() / self.nodes.len() as f64;
+            
+        // 4. Network density (higher is better)
+        let density_score = self.network_density();
+        
+        // Combine scores
+        let score = 0.3 * partition_score +
+                   0.3 * critical_score +
+                   0.2 * health_score +
+                   0.2 * density_score;
+                   
+        score.min(1.0).max(0.0)
     }
 } 

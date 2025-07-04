@@ -1,3 +1,139 @@
+/*!
+# Message Types Module
+
+This module defines the core message types and structures used in the FROST protocol's
+messaging system. It provides comprehensive type definitions for protocol messages,
+metadata, and processing metrics.
+
+## Core Components
+
+### Message Types
+- Protocol messages
+- State transitions
+- Finality signals
+- Discovery messages
+- Batch processing
+
+### Message Metadata
+- Protocol versioning
+- Priority handling
+- Chain metadata
+- Processing metrics
+
+### Message Processing
+- Message creation
+- Batch handling
+- Metric tracking
+- Validation rules
+
+## Architecture
+
+The type system consists of several key components:
+
+1. **Core Message**
+   ```rust
+   pub struct FrostMessage {
+       id: Uuid,
+       msg_type: MessageType,
+       payload: Vec<u8>,
+       metadata: MessageMetadata,
+       // ...
+   }
+   ```
+   - Message identity
+   - Type information
+   - Content payload
+   - Routing data
+
+2. **Message Metadata**
+   ```rust
+   pub struct MessageMetadata {
+       version: u16,
+       priority: MessagePriority,
+       chain_metadata: Option<Value>,
+       metrics: Option<MessageMetrics>,
+   }
+   ```
+   - Version control
+   - Priority levels
+   - Chain data
+   - Processing metrics
+
+3. **Batch Processing**
+   ```rust
+   pub struct BatchMessage {
+       batch_id: Uuid,
+       messages: Vec<FrostMessage>,
+       ordered: bool,
+       min_success_ratio: f32,
+   }
+   ```
+   - Batch identity
+   - Message grouping
+   - Order requirements
+   - Success criteria
+
+## Features
+
+### Message Structure
+- Unique identification
+- Type classification
+- Content handling
+- Metadata tracking
+
+### Message Priority
+- Priority levels
+- Processing order
+- Resource allocation
+- Critical handling
+
+### Chain Integration
+- Chain identification
+- Cross-chain routing
+- State transitions
+- Finality signals
+
+### Batch Processing
+- Message batching
+- Order preservation
+- Success criteria
+- Batch metadata
+
+## Best Practices
+
+1. **Message Creation**
+   - Proper initialization
+   - Required fields
+   - Type selection
+   - Metadata setup
+
+2. **Priority Handling**
+   - Level selection
+   - Resource allocation
+   - Processing order
+   - Critical messages
+
+3. **Chain Messages**
+   - Chain validation
+   - Route selection
+   - State handling
+   - Proof management
+
+4. **Batch Operations**
+   - Size management
+   - Order handling
+   - Success criteria
+   - Resource usage
+
+## Integration
+
+The type system integrates with:
+1. Message handling
+2. Chain management
+3. State transitions
+4. Protocol operations
+*/
+
 use serde::{Serialize, Deserialize};
 use uuid::Uuid;
 use std::time::SystemTime;
@@ -15,6 +151,8 @@ pub enum MessageType {
     FinalitySignal,
     /// Network discovery message
     Discovery,
+    /// Batch message
+    Batch,
     /// Custom message type
     Custom(String),
 }
@@ -34,6 +172,21 @@ impl Default for MessagePriority {
     }
 }
 
+/// Proof type and verification parameters
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProofMetadata {
+    /// Type of proof being used
+    pub proof_type: String,
+    /// Version of the proof system
+    pub proof_version: u32,
+    /// Chain-specific verification parameters
+    pub verification_params: Option<serde_json::Value>,
+    /// Required security level (0-100)
+    pub security_level: u8,
+    /// Proof expiration time
+    pub expires_at: Option<SystemTime>,
+}
+
 /// Additional message metadata
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct MessageMetadata {
@@ -47,6 +200,21 @@ pub struct MessageMetadata {
     pub chain_metadata: Option<serde_json::Value>,
     /// Custom metadata fields
     pub custom_metadata: Option<serde_json::Value>,
+    /// Processing metrics
+    pub metrics: Option<MessageMetrics>,
+}
+
+/// Message processing metrics
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MessageMetrics {
+    /// When message processing started
+    pub processing_start: SystemTime,
+    /// Processing duration in milliseconds
+    pub processing_duration_ms: Option<u64>,
+    /// Number of validation attempts
+    pub validation_attempts: u32,
+    /// Size of message in bytes
+    pub message_size_bytes: usize,
 }
 
 /// Core protocol message
@@ -83,6 +251,23 @@ pub struct FrostMessage {
     pub finality_signal: Option<FinalitySignal>,
     /// Optional block reference
     pub block_ref: Option<BlockRef>,
+    /// Optional proof metadata
+    pub proof_metadata: Option<ProofMetadata>,
+}
+
+/// Batch of messages for efficient processing
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BatchMessage {
+    /// Unique batch identifier
+    pub batch_id: Uuid,
+    /// Messages in the batch
+    pub messages: Vec<FrostMessage>,
+    /// Batch metadata
+    pub metadata: MessageMetadata,
+    /// Whether messages must be processed in order
+    pub ordered: bool,
+    /// Minimum success ratio (0.0-1.0) for batch to succeed
+    pub min_success_ratio: f32,
 }
 
 impl FrostMessage {
@@ -100,7 +285,15 @@ impl FrostMessage {
                 .duration_since(SystemTime::UNIX_EPOCH)
                 .unwrap_or_default()
                 .as_secs(),
-            metadata: MessageMetadata::default(),
+            metadata: MessageMetadata {
+                metrics: Some(MessageMetrics {
+                    processing_start: SystemTime::now(),
+                    processing_duration_ms: None,
+                    validation_attempts: 0,
+                    message_size_bytes: payload.len(),
+                }),
+                ..Default::default()
+            },
             source,
             target,
             source_chain: None,
@@ -109,6 +302,7 @@ impl FrostMessage {
             state_transition: None,
             finality_signal: None,
             block_ref: None,
+            proof_metadata: None,
         }
     }
 
@@ -123,6 +317,7 @@ impl FrostMessage {
         state_transition: Option<StateTransition>,
         finality_signal: Option<FinalitySignal>,
         block_ref: Option<BlockRef>,
+        proof_metadata: Option<ProofMetadata>,
     ) -> Self {
         Self {
             id: Uuid::new_v4(),
@@ -131,7 +326,15 @@ impl FrostMessage {
                 .duration_since(SystemTime::UNIX_EPOCH)
                 .unwrap_or_default()
                 .as_secs(),
-            metadata: MessageMetadata::default(),
+            metadata: MessageMetadata {
+                metrics: Some(MessageMetrics {
+                    processing_start: SystemTime::now(),
+                    processing_duration_ms: None,
+                    validation_attempts: 0,
+                    message_size_bytes: payload.len(),
+                }),
+                ..Default::default()
+            },
             source,
             target,
             source_chain: Some(source_chain),
@@ -140,6 +343,39 @@ impl FrostMessage {
             state_transition,
             finality_signal,
             block_ref,
+            proof_metadata,
+        }
+    }
+
+    /// Create a new batch message
+    pub fn new_batch(messages: Vec<FrostMessage>, ordered: bool, min_success_ratio: f32) -> BatchMessage {
+        BatchMessage {
+            batch_id: Uuid::new_v4(),
+            metadata: MessageMetadata {
+                metrics: Some(MessageMetrics {
+                    processing_start: SystemTime::now(),
+                    processing_duration_ms: None,
+                    validation_attempts: 0,
+                    message_size_bytes: messages.iter().map(|m| m.payload.len()).sum(),
+                }),
+                ..Default::default()
+            },
+            messages,
+            ordered,
+            min_success_ratio,
+        }
+    }
+
+    /// Update processing metrics
+    pub fn update_metrics(&mut self) {
+        if let Some(metrics) = &mut self.metadata.metrics {
+            metrics.validation_attempts += 1;
+            metrics.processing_duration_ms = Some(
+                SystemTime::now()
+                    .duration_since(metrics.processing_start)
+                    .unwrap_or_default()
+                    .as_millis() as u64
+            );
         }
     }
 
@@ -158,6 +394,7 @@ impl FrostMessage {
             MessageType::FinalitySignal => {
                 self.source_chain.is_some() && self.finality_signal.is_some()
             }
+            MessageType::Batch => false, // Batch messages should use BatchMessage type
             _ => true,
         }
     }

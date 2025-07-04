@@ -1,20 +1,254 @@
+/*!
+# Network Module
+
+This module provides comprehensive networking functionality for the FROST protocol,
+implementing peer-to-peer communication, discovery, security, and reliability features.
+
+## Core Components
+
+### Protocol Layer
+- Network protocols
+- Message handling
+- Peer management
+- Connection pooling
+
+### Transport Layer
+- Transport protocols
+- Connection handling
+- Data streaming
+- Error handling
+
+### Security Layer
+- Authentication
+- Authorization
+- Encryption
+- Key management
+
+### Reliability Layer
+- Circuit breakers
+- Backpressure control
+- Retry policies
+- Fault tolerance
+
+## Core Networking
+
+### Connection Management
+The core networking system handles:
+- Connection establishment and teardown
+- Connection pooling and reuse
+- Connection monitoring and health checks
+- Resource management and cleanup
+
+### Message Processing
+Message handling includes:
+- Message serialization/deserialization
+- Message routing and forwarding
+- Message prioritization
+- Flow control and congestion management
+
+### Error Handling
+Comprehensive error management:
+- Connection errors
+- Protocol errors
+- Transport errors
+- Application errors
+
+### Performance Optimization
+Performance features include:
+- Connection pooling
+- Buffer management
+- Latency optimization
+- Throughput maximization
+
+## P2P Communication
+
+### Node Discovery
+Peer discovery mechanisms:
+- Bootstrap node discovery
+- DHT-based discovery
+- Local network discovery
+- Peer exchange protocols
+
+### Node Communication
+Inter-node communication:
+- Direct messaging
+- Broadcast messaging
+- Multicast groups
+- Subscription systems
+
+### Network Topology
+Network structure management:
+- Mesh networking
+- Structured overlays
+- Unstructured overlays
+- Network partitioning
+
+### Peer Management
+Peer relationship handling:
+- Peer selection
+- Peer ranking
+- Peer monitoring
+- Peer eviction
+
+## Security Features
+
+### Authentication
+Authentication mechanisms:
+- Node identity verification
+- Challenge-response protocols
+- Certificate-based auth
+- Key-based authentication
+
+### Authorization
+Access control features:
+- Role-based access
+- Capability-based security
+- Permission management
+- Access policies
+
+### Encryption
+Data protection:
+- Transport encryption
+- End-to-end encryption
+- Key exchange protocols
+- Cipher suite management
+
+### Network Security
+Network-level protection:
+- DDoS protection
+- Sybil attack resistance
+- Eclipse attack prevention
+- Network partitioning detection
+
+## Reliability Mechanisms
+
+### Circuit Breaking
+Circuit breaker patterns:
+- Failure detection
+- Service isolation
+- Recovery procedures
+- State management
+
+### Backpressure
+Flow control mechanisms:
+- Rate limiting
+- Load shedding
+- Queue management
+- Resource allocation
+
+### Retry Handling
+Retry strategies:
+- Exponential backoff
+- Jitter implementation
+- Retry policies
+- Failure categorization
+
+### Fault Tolerance
+System resilience:
+- Redundancy management
+- Failover procedures
+- State replication
+- Consistency maintenance
+
+## Integration Points
+
+The network module integrates with several system components:
+
+### State Management
+- State synchronization
+- State verification
+- State transition handling
+- Consistency protocols
+
+### Message System
+- Message routing
+- Message validation
+- Message prioritization
+- Message persistence
+
+### Chain Coordination
+- Chain state sync
+- Block propagation
+- Transaction broadcasting
+- Consensus participation
+
+### Protocol Operations
+- Protocol versioning
+- Feature negotiation
+- Capability discovery
+- Protocol upgrades
+
+## Best Practices
+
+### Network Usage
+1. Connection Management
+   - Proper connection initialization
+   - Resource cleanup
+   - Connection pooling
+   - Error handling
+
+2. Message Handling
+   - Message validation
+   - Rate limiting
+   - Priority handling
+   - Error recovery
+
+3. Security Implementation
+   - Authentication checks
+   - Authorization enforcement
+   - Encryption usage
+   - Security monitoring
+
+4. Reliability Patterns
+   - Circuit breaker usage
+   - Backpressure implementation
+   - Retry strategy selection
+   - Fault tolerance design
+
+## Performance Considerations
+
+### Resource Management
+- Connection pooling
+- Buffer management
+- Thread pool sizing
+- Memory allocation
+
+### Optimization Techniques
+- Message batching
+- Connection multiplexing
+- Protocol optimization
+- Cache utilization
+
+### Monitoring
+- Performance metrics
+- Resource utilization
+- Error rates
+- Latency tracking
+
+### Tuning
+- Buffer sizes
+- Timeout values
+- Retry parameters
+- Pool configurations
+*/
+
 #![allow(unused_imports)]
 #![allow(unused_variables)]
 #![allow(dead_code)]
 
 
-mod protocol;
-mod transport;
-mod peer;
-mod error;
-mod discovery;
-mod security;
-mod circuit_breaker;
-mod backpressure;
-mod pool;
-mod retry;
-mod telemetry;
-mod p2p;
+pub mod protocol;
+pub mod transport;
+pub mod peer;
+pub mod error;
+pub mod discovery;
+pub mod security;
+pub mod circuit_breaker;
+pub mod backpressure;
+pub mod pool;
+pub mod retry;
+pub mod telemetry;
+pub mod p2p;
 
 pub use protocol::{NetworkProtocol as ImportedNetworkProtocol, ProtocolConfig};
 pub use transport::{Transport, TransportConfig};

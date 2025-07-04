@@ -93,11 +93,62 @@ impl DefaultCircuitBreaker {
         }
         metrics.current_error_rate = metrics.failed_requests as f64 / metrics.total_requests as f64;
     }
+
+    fn transition_state(&self, new_state: CircuitState) {
+        self.state.store(new_state as u8, Ordering::Relaxed);
+        let mut metrics = self.metrics.write();
+        metrics.last_state_change = std::time::SystemTime::now();
+    }
+
+    fn check_state_transition(&self) {
+        let current_state = self.current_state();
+        let failure_count = self.failure_count.load(Ordering::Relaxed);
+        let success_count = self.success_count.load(Ordering::Relaxed);
+        let last_failure = self.last_failure.load(Ordering::Relaxed);
+
+        match current_state {
+            CircuitState::Closed => {
+                if failure_count >= self.config.failure_threshold as u64 {
+                    self.transition_state(CircuitState::Open);
+                    self.success_count.store(0, Ordering::Relaxed);
+                }
+            }
+            CircuitState::Open => {
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs();
+                if now - last_failure >= self.config.reset_timeout.as_secs() {
+                    self.transition_state(CircuitState::HalfOpen);
+                    self.failure_count.store(0, Ordering::Relaxed);
+                    self.success_count.store(0, Ordering::Relaxed);
+                }
+            }
+            CircuitState::HalfOpen => {
+                if failure_count > 0 {
+                    self.transition_state(CircuitState::Open);
+                    self.success_count.store(0, Ordering::Relaxed);
+                    self.last_failure.store(
+                        std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap()
+                            .as_secs(),
+                        Ordering::Relaxed,
+                    );
+                } else if success_count >= self.config.success_threshold as u64 {
+                    self.transition_state(CircuitState::Closed);
+                    self.failure_count.store(0, Ordering::Relaxed);
+                    self.success_count.store(0, Ordering::Relaxed);
+                }
+            }
+        }
+    }
 }
 
 #[async_trait]
 impl CircuitBreaker for DefaultCircuitBreaker {
     async fn pre_execute(&self) -> Result<bool> {
+        self.check_state_transition();
         let current_state = self.current_state();
         match current_state {
             CircuitState::Closed => Ok(true),
@@ -118,10 +169,13 @@ impl CircuitBreaker for DefaultCircuitBreaker {
         match success {
             true => {
                 self.success_count.fetch_add(1, Ordering::Relaxed);
+                if !matches!(self.current_state(), CircuitState::HalfOpen) {
                 self.failure_count.store(0, Ordering::Relaxed);
+                }
             }
             false => {
                 self.failure_count.fetch_add(1, Ordering::Relaxed);
+                self.success_count.store(0, Ordering::Relaxed);
                 self.last_failure.store(
                     std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)
@@ -131,6 +185,7 @@ impl CircuitBreaker for DefaultCircuitBreaker {
                 );
             }
         }
+        self.check_state_transition();
         Ok(())
     }
 

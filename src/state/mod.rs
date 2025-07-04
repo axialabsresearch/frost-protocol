@@ -1,112 +1,217 @@
+/*!
+# State Module
+
+This module implements the state management system for the FROST protocol,
+providing state transition, proof verification, and caching mechanisms.
+
+## Core Components
+
+### State Transition
+The state transition system handles:
+- Block state transitions
+- State validation
+- Transition verification
+- State synchronization
+
+### State Proof
+Proof management includes:
+- Proof generation
+- Proof verification
+- Proof caching
+- Revocation handling
+
+### State Types
+Core state types include:
+- Block identifiers
+- Chain identifiers
+- State roots
+- Block references
+
+### Error Handling
+Comprehensive error management:
+- State errors
+- Validation errors
+- Proof errors
+- Cache errors
+
+## Architecture
+
+The state system consists of several key components:
+
+1. **State Transition**
+   ```rust
+   pub struct StateTransition {
+       source: BlockId,
+       target: BlockId,
+       state_data: Vec<u8>,
+   }
+   ```
+   - State changes
+   - Transition validation
+   - State verification
+   - Data management
+
+2. **State Proof**
+   ```rust
+   pub struct StateProof {
+       transition: StateTransition,
+       proof: ProofData,
+   }
+   ```
+   - Proof generation
+   - Verification
+   - Caching
+   - Revocation
+
+3. **State Types**
+   ```rust
+   pub enum BlockId {
+       Hash([u8; 32]),
+       Number(u64),
+       Composite { number: u64, hash: [u8; 32] },
+   }
+   ```
+   - Block identification
+   - Chain references
+   - State roots
+   - Metadata
+
+## Features
+
+### State Management
+- State transitions
+- State verification
+- State caching
+- State synchronization
+
+### Proof System
+- Proof generation
+- Proof verification
+- Proof caching
+- Proof revocation
+
+### Type System
+- Block identification
+- Chain references
+- State roots
+- Metadata handling
+
+### Error Handling
+- Error categorization
+- Error severity
+- Error recovery
+- Error reporting
+
+## Best Practices
+
+### State Handling
+1. Transition Management
+   - Proper validation
+   - State verification
+   - Cache utilization
+   - Error handling
+
+2. Proof Management
+   - Proof verification
+   - Cache management
+   - Revocation handling
+   - Error recovery
+
+3. Type Usage
+   - Proper identification
+   - Reference handling
+   - Root management
+   - Metadata usage
+
+4. Error Management
+   - Error categorization
+   - Severity assessment
+   - Recovery procedures
+   - Reporting mechanisms
+
+## Integration
+
+### Chain Integration
+- State synchronization
+- Block management
+- Chain references
+- State verification
+
+### Cache System
+- State caching
+- Proof caching
+- Cache invalidation
+- Cache optimization
+
+### Proof System
+- Proof generation
+- Verification
+- Revocation
+- Cache management
+
+### Error System
+- Error handling
+- Recovery procedures
+- Reporting mechanisms
+- Severity management
+
+## Performance Considerations
+
+### Resource Management
+- State size
+- Cache utilization
+- Memory usage
+- CPU utilization
+
+### Optimization
+- Cache strategies
+- Verification speed
+- State compression
+- Resource sharing
+
+### Monitoring
+- State metrics
+- Cache performance
+- Error rates
+- Resource usage
+
+### Tuning
+- Cache sizes
+- Timeout values
+- Retry parameters
+- Resource limits
+*/
+
 #![allow(unused_imports)]
 
 pub mod transition;
 pub mod proof;
 pub mod types;
 pub mod error;
+pub mod cache;
+pub mod revocation;
 
-pub use transition::StateTransition as ImportedStateTransition;
-pub use proof::StateProof as ImportedStateProof;
-pub use types::{BlockId as ImportedBlockId, BlockRef, StateRoot, ChainId};
+pub use transition::StateTransition;
+pub use proof::StateProof;
+pub use types::{BlockId, BlockRef, StateRoot, ChainId};
 pub use error::{StateError, ErrorSeverity};
 
 use crate::Result;
 use serde::{Serialize, Deserialize};
 use std::time::SystemTime;
 
-/// Block identifier
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct BlockId {
-    /// Chain identifier
-    pub chain_id: String,
-    /// Block number
-    pub number: u64,
-    /// Block hash
-    pub hash: [u8; 32],
-}
-
-/// State transition
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct StateTransition {
-    /// Source block
-    pub source: BlockId,
-    /// Target block
-    pub target: BlockId,
-    /// Transition data
-    pub data: Vec<u8>,
-    /// Timestamp
-    pub timestamp: u64,
-    /// Version
-    pub version: u16,
-}
-
-impl StateTransition {
-    /// Create a new state transition
-    pub fn new(source: BlockId, target: BlockId, data: Vec<u8>) -> Self {
-        Self {
-            source,
-            target,
-            data,
-            timestamp: SystemTime::now()
-                .duration_since(SystemTime::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs(),
-            version: 0,
-        }
-    }
-
-    /// Validate state transition
-    pub fn validate(&self) -> bool {
-        // Basic validation for v0
-        !self.data.is_empty() && 
-        !self.source.chain_id.is_empty() && 
-        !self.target.chain_id.is_empty()
-    }
-}
-
-/// State proof
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct StateProof {
-    /// State transition
-    pub transition: StateTransition,
-    /// Proof data
-    pub proof: Vec<u8>,
-    /// Validator signatures
-    pub signatures: Vec<Vec<u8>>,
-}
-
-impl StateProof {
-    /// Create a new state proof
-    pub fn new(transition: StateTransition, proof: Vec<u8>, signatures: Vec<Vec<u8>>) -> Self {
-        Self {
-            transition,
-            proof,
-            signatures,
-        }
-    }
-
-    /// Validate state proof
-    pub fn validate(&self) -> bool {
-        // Basic validation for v0
-        self.transition.validate() && 
-        !self.proof.is_empty() && 
-        !self.signatures.is_empty()
-    }
-}
-
+// Quick test the state transition validation 
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn test_state_transition_validation() {
-        let source = BlockId {
-            chain_id: "chain1".to_string(),
+        let source = BlockId::Composite {
             number: 1,
             hash: [0; 32],
         };
-        let target = BlockId {
-            chain_id: "chain2".to_string(),
+        let target = BlockId::Composite {
             number: 1,
             hash: [0; 32],
         };
@@ -119,48 +224,10 @@ mod tests {
         assert!(transition.validate());
 
         let invalid_transition = StateTransition::new(
-            BlockId::default(),
-            BlockId::default(),
+            BlockId::Number(0),
+            BlockId::Number(0),
             vec![],
         );
         assert!(!invalid_transition.validate());
-    }
-
-    #[test]
-    fn test_state_proof_validation() {
-        let source = BlockId {
-            chain_id: "chain1".to_string(),
-            number: 1,
-            hash: [0; 32],
-        };
-        let target = BlockId {
-            chain_id: "chain2".to_string(),
-            number: 1,
-            hash: [0; 32],
-        };
-        
-        let transition = StateTransition::new(
-            source,
-            target,
-            vec![1, 2, 3],
-        );
-        
-        let proof = StateProof::new(
-            transition,
-            vec![4, 5, 6],
-            vec![vec![7, 8, 9]],
-        );
-        assert!(proof.validate());
-
-        let invalid_proof = StateProof::new(
-            StateTransition::new(
-                BlockId::default(),
-                BlockId::default(),
-                vec![],
-            ),
-            vec![],
-            vec![],
-        );
-        assert!(!invalid_proof.validate());
     }
 }

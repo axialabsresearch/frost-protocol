@@ -1,3 +1,181 @@
+/*!
+# Message Router Implementation
+
+This module provides the core message routing implementation for the FROST protocol,
+featuring advanced routing capabilities, load balancing, and circuit breaking.
+
+## Core Components
+
+### Router Configuration
+The router can be configured with:
+- Maximum hop limits
+- Route timeouts
+- Parallel route limits
+- Chain-specific parameters
+
+### Enhanced Router
+Advanced routing features:
+- Load balancing
+- Circuit breaking
+- Route weights
+- Usage tracking
+
+### Circuit Breaking
+Fault tolerance through:
+- Failure tracking
+- Automatic recovery
+- Health monitoring
+- Circuit state management
+
+## Architecture
+
+The routing system implements several key patterns:
+
+1. **Load Balancing**
+   ```rust
+   async fn select_next_hop(&self, target: &str) -> Option<String> {
+       // Weighted selection based on performance and health
+   }
+   ```
+   - Weighted round-robin
+   - Performance-based weights
+   - Health-aware selection
+   - Dynamic adjustment
+
+2. **Circuit Breaking**
+   ```rust
+   struct CircuitBreaker {
+       failures: u32,
+       last_failure: Instant,
+       reset_timeout: Duration,
+       failure_threshold: u32,
+   }
+   ```
+   - Failure tracking
+   - Automatic recovery
+   - Health monitoring
+   - State management
+
+3. **Route Management**
+   ```rust
+   pub trait MessageRouter: Send + Sync {
+       async fn route_message(&self, message: FrostMessage) -> Result<RouteStatus>;
+       async fn get_route(&self, from: ChainId, to: ChainId) -> Result<Vec<ChainId>>;
+       async fn update_topology(&mut self, topology: NetworkTopology) -> Result<()>;
+       async fn get_metrics(&self) -> Result<RouteMetrics>;
+   }
+   ```
+   - Message routing
+   - Route discovery
+   - Topology updates
+   - Metrics tracking
+
+## Features
+
+### Load Balancing
+- Weighted selection
+- Performance tracking
+- Dynamic weights
+- Health awareness
+
+### Circuit Breaking
+- Failure detection
+- Automatic recovery
+- Health monitoring
+- State management
+
+### Route Management
+- Dynamic routing
+- Topology updates
+- Metric collection
+- Health checks
+
+### Performance
+- Route caching
+- Weight optimization
+- Resource management
+- Metric tracking
+
+## Best Practices
+
+### Router Usage
+1. Configuration
+   - Set appropriate timeouts
+   - Configure hop limits
+   - Define chain parameters
+   - Set failure thresholds
+
+2. Route Management
+   - Regular topology updates
+   - Weight adjustments
+   - Health monitoring
+   - Metric collection
+
+3. Error Handling
+   - Circuit breaker usage
+   - Failure recovery
+   - Alternative routes
+   - Error propagation
+
+4. Performance Tuning
+   - Weight optimization
+   - Cache management
+   - Resource limits
+   - Metric analysis
+
+## Integration
+
+### Network Layer
+- Message transmission
+- Connection management
+- Peer discovery
+- Health checks
+
+### Topology Management
+- Route updates
+- Node discovery
+- Connection tracking
+- Health monitoring
+
+### Metrics Collection
+- Performance tracking
+- Health monitoring
+- Resource usage
+- Error tracking
+
+### Circuit Breaking
+- Failure detection
+- State management
+- Recovery handling
+- Health updates
+
+## Performance Considerations
+
+### Resource Management
+- Route cache size
+- Connection pools
+- Thread usage
+- Memory allocation
+
+### Optimization
+- Weight calculation
+- Route selection
+- Cache utilization
+- Resource sharing
+
+### Monitoring
+- Route metrics
+- Health status
+- Resource usage
+- Error rates
+
+### Tuning
+- Timeout values
+- Circuit parameters
+- Cache sizes
+- Pool limits
+*/
+
 #![allow(unused_variables)]
 #![allow(unused_imports)]
 #![allow(dead_code)]
@@ -6,7 +184,10 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use async_trait::async_trait;
 use tracing::{info, warn, error};
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
+use std::time::{Duration, Instant};
+use rand::Rng;
+use std::error::Error;
 
 use crate::message::{FrostMessage, MessageError};
 use crate::state::ChainId;
@@ -16,6 +197,8 @@ use super::{
     DefaultStrategy,
     NetworkTopology,
     TopologyNode,
+    NetworkProtocol,
+    RoutingConfig,
 };
 
 /// Configuration for message routing
@@ -96,85 +279,195 @@ pub struct RouteMetrics {
     pub route_success_rate: f64,
 }
 
-/// Implementation of message router
-pub struct BasicMessageRouter {
-    config: RouterConfig,
-    topology: RwLock<NetworkTopology>,
-    strategy: Box<dyn RoutingStrategy>,
-    active_routes: RwLock<HashMap<uuid::Uuid, RouteStatus>>,
-    metrics: RwLock<RouteMetrics>,
+/// Router health status
+#[derive(Debug, Clone, PartialEq)]
+pub enum RouterHealth {
+    Healthy,
+    Degraded,
+    Unhealthy,
 }
 
-impl BasicMessageRouter {
-    /// Create new message router
-    pub fn new(config: RouterConfig) -> Self {
+/// Circuit breaker state
+#[derive(Debug, Clone)]
+struct CircuitBreaker {
+    failures: u32,
+    last_failure: Instant,
+    reset_timeout: Duration,
+    failure_threshold: u32,
+}
+
+impl CircuitBreaker {
+    fn new(failure_threshold: u32, reset_timeout: Duration) -> Self {
+        Self {
+            failures: 0,
+            last_failure: Instant::now(),
+            reset_timeout,
+            failure_threshold,
+        }
+    }
+
+    fn record_failure(&mut self) {
+        self.failures += 1;
+        self.last_failure = Instant::now();
+    }
+
+    fn record_success(&mut self) {
+        if self.last_failure.elapsed() >= self.reset_timeout {
+            self.failures = 0;
+        }
+    }
+
+    fn is_open(&self) -> bool {
+        self.failures >= self.failure_threshold && 
+        self.last_failure.elapsed() < self.reset_timeout
+    }
+}
+
+/// Enhanced router with load balancing and circuit breaking
+pub struct EnhancedRouter<N: NetworkProtocol> {
+    config: RoutingConfig,
+    routes: RwLock<HashMap<String, Vec<String>>>, // Multiple next hops per target
+    route_weights: RwLock<HashMap<String, f64>>,
+    circuit_breakers: RwLock<HashMap<String, CircuitBreaker>>,
+    route_usage: RwLock<HashMap<String, VecDeque<Instant>>>,
+    topology: RwLock<NetworkTopology>,
+    strategy: RwLock<Box<dyn RoutingStrategy>>,
+    metrics: RwLock<RouteMetrics>,
+    network: N,
+}
+
+impl<N: NetworkProtocol> EnhancedRouter<N> {
+    /// Create new enhanced router
+    pub fn new(config: RoutingConfig, network: N) -> Self {
         Self {
             config,
-            topology: RwLock::new(NetworkTopology::default()),
-            strategy: Box::new(DefaultStrategy::new()),
-            active_routes: RwLock::new(HashMap::new()),
+            routes: RwLock::new(HashMap::new()),
+            route_weights: RwLock::new(HashMap::new()),
+            circuit_breakers: RwLock::new(HashMap::new()),
+            route_usage: RwLock::new(HashMap::new()),
+            topology: RwLock::new(NetworkTopology::new()),
+            strategy: RwLock::new(Box::new(DefaultStrategy::new())),
             metrics: RwLock::new(RouteMetrics::default()),
+            network,
         }
     }
     
-    /// Update route metrics
-    async fn update_metrics(&self, success: bool, duration: std::time::Duration) {
-        let mut metrics = self.metrics.write().await;
-        if success {
-            metrics.completed_routes += 1;
+    /// Get router health status
+    pub async fn health(&self) -> RouterHealth {
+        let breakers = self.circuit_breakers.read().await;
+        let open_circuits = breakers.values().filter(|b| b.is_open()).count();
+        
+        if open_circuits == 0 {
+            RouterHealth::Healthy
+        } else if open_circuits < breakers.len() / 2 {
+            RouterHealth::Degraded
         } else {
-            metrics.failed_routes += 1;
+            RouterHealth::Unhealthy
+        }
+    }
+
+    /// Select next hop using weighted round robin
+    async fn select_next_hop(&self, target: &str) -> Option<String> {
+        let routes = self.routes.read().await;
+        let weights = self.route_weights.read().await;
+        let breakers = self.circuit_breakers.read().await;
+        
+        if let Some(hops) = routes.get(target) {
+            // Filter out nodes with open circuit breakers
+            let available_hops: Vec<_> = hops.iter()
+                .filter(|hop| {
+                    !breakers.get(*hop)
+                        .map(|b| b.is_open())
+                        .unwrap_or(false)
+                })
+                .collect();
+
+            if available_hops.is_empty() {
+                return None;
+            }
+
+            // Calculate total weight
+            let total_weight: f64 = available_hops.iter()
+                .map(|hop| weights.get(hop.as_str()).unwrap_or(&1.0))
+                .sum();
+
+            // Select hop based on weights
+            let mut rng = rand::rng();
+            let mut choice = rng.random::<f64>() * total_weight;
+
+            for hop in available_hops {
+                let weight = weights.get(hop.as_str()).unwrap_or(&1.0);
+                if choice <= *weight {
+                    return Some(hop.clone());
+                }
+                choice -= weight;
+            }
         }
         
-        let total_routes = metrics.completed_routes + metrics.failed_routes;
-        metrics.route_success_rate = metrics.completed_routes as f64 / total_routes as f64;
+        None
+    }
+
+    /// Update route weights based on performance
+    async fn update_weights(&self) {
+        let mut weights = self.route_weights.write().await;
+        let usage = self.route_usage.read().await;
+        let window = Duration::from_secs(60); // 1 minute window
         
-        // Update average route time using exponential moving average
-        let alpha = 0.1;
-        metrics.average_route_time = (1.0 - alpha) * metrics.average_route_time +
-            alpha * duration.as_secs_f64();
+        for (route, times) in usage.iter() {
+            let recent_count = times.iter()
+                .filter(|t| t.elapsed() < window)
+                .count();
+            
+            // Update weight based on usage
+            let new_weight = 1.0 / (1.0 + recent_count as f64 / 100.0);
+            weights.insert(route.clone(), new_weight);
+        }
     }
 }
 
 #[async_trait]
-impl MessageRouter for BasicMessageRouter {
+impl<N: NetworkProtocol> MessageRouter for EnhancedRouter<N> {
     async fn route_message(&self, message: FrostMessage) -> Result<RouteStatus> {
-        // Extract source and target chains from message
-        let source_chain = ChainId::new(&message.source);
-        let target_chain = message.target
-            .as_ref()
-            .map(|t| ChainId::new(t))
-            .ok_or_else(|| MessageError::InvalidFormat("Missing target chain".into()))?;
-
-        // Get route between chains
-        let route = self.get_route(source_chain, target_chain).await?;
-        
-        if route.is_empty() {
-            return Err(MessageError::Processing("No valid route found".into()).into());
-        }
-        
-        if route.len() > self.config.max_hops as usize {
-            return Err(MessageError::Processing("Route exceeds maximum hops".into()).into());
-        }
-        
+        if let Some(target) = message.target.as_ref() {
+            // Try to get next hop with load balancing
+            if let Some(next_hop) = self.select_next_hop(target).await {
         let status = RouteStatus {
             message_id: uuid::Uuid::new_v4(),
-            route: route.clone(),
+                    route: vec![ChainId::new(&next_hop)],
             current_hop: 0,
-            estimated_time: std::time::Duration::from_secs(
-                (route.len() as u64) * self.config.route_timeout
-            ),
+                    estimated_time: std::time::Duration::from_secs(self.config.route_timeout),
             state: RouteState::Planning,
         };
         
-        self.active_routes.write().await.insert(status.message_id, status.clone());
-        
+                Ok(status)
+            } else {
+                // Fallback to broadcast if no available route
+                let status = RouteStatus {
+                    message_id: uuid::Uuid::new_v4(),
+                    route: Vec::new(),
+                    current_hop: 0,
+                    estimated_time: std::time::Duration::from_secs(self.config.route_timeout),
+                    state: RouteState::Failed("No available route".into()),
+                };
+                Ok(status)
+            }
+        } else {
+            // Broadcast messages without target
+            let status = RouteStatus {
+                message_id: uuid::Uuid::new_v4(),
+                route: Vec::new(),
+                current_hop: 0,
+                estimated_time: std::time::Duration::from_secs(self.config.route_timeout),
+                state: RouteState::Failed("Broadcast message".into()),
+            };
         Ok(status)
+        }
     }
     
     async fn get_route(&self, from: ChainId, to: ChainId) -> Result<Vec<ChainId>> {
         let topology = self.topology.read().await;
-        self.strategy.find_route(&topology, &from, &to).await
+        let mut strategy = self.strategy.write().await;
+        strategy.find_route(&topology, &from, &to).await
     }
     
     async fn update_topology(&mut self, topology: NetworkTopology) -> Result<()> {

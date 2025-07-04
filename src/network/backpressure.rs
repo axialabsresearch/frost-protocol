@@ -102,6 +102,53 @@ impl DefaultBackpressureController {
         }
     }
 
+    async fn try_acquire(&self) -> Result<tokio::sync::SemaphorePermit> {
+        let available_permits = self.semaphore.available_permits();
+        let current_queued;
+        
+        {
+            let metrics = self.metrics.read();
+            current_queued = metrics.queued_requests;
+            
+            // If no permits and queue full, reject immediately
+            if available_permits == 0 && current_queued >= self.config.max_queue_size {
+                drop(metrics);
+                let mut metrics = self.metrics.write();
+                metrics.rejected_requests += 1;
+                return Err(Error::Network("Request queue full".to_string()));
+            }
+        }
+
+        // If no permits available, increment queue counter
+        if available_permits == 0 {
+            let mut metrics = self.metrics.write();
+            metrics.queued_requests += 1;
+            drop(metrics);
+        }
+
+        // Try to acquire permit
+        match self.semaphore.acquire().await {
+            Ok(permit) => {
+                // If we got a permit and were queued, decrement queue counter
+                if available_permits == 0 {
+                    let mut metrics = self.metrics.write();
+                    if metrics.queued_requests > 0 {
+                        metrics.queued_requests -= 1;
+                    }
+                }
+                Ok(permit)
+            }
+            Err(e) => {
+                let mut metrics = self.metrics.write();
+                metrics.rejected_requests += 1;
+                if metrics.queued_requests > 0 {
+                    metrics.queued_requests -= 1;
+                }
+                Err(e.into())
+            }
+        }
+    }
+
     fn calculate_pressure(&self, load: f64) -> PressureLevel {
         match load {
             l if l < 0.5 => PressureLevel::Low,
@@ -115,17 +162,54 @@ impl DefaultBackpressureController {
 #[async_trait]
 impl BackpressureController for DefaultBackpressureController {
     async fn acquire(&self) -> Result<BackpressurePermit> {
-        let permit = self.semaphore.acquire().await.map_err(|e| {
-            let mut metrics = self.metrics.write();
-            metrics.rejected_requests += 1;
-            e
-        })?;
+        let available_permits = self.semaphore.available_permits();
+        let current_queued;
+        
+        {
+            let metrics = self.metrics.read();
+            current_queued = metrics.queued_requests;
+            
+            // If no permits and queue full, reject immediately
+            if available_permits == 0 && current_queued >= self.config.max_queue_size {
+                drop(metrics);
+                let mut metrics = self.metrics.write();
+                metrics.rejected_requests += 1;
+                return Err(Error::Network("Request queue full".to_string()));
+            }
+        }
 
+        // If no permits available, increment queue counter
+        if available_permits == 0 {
+            let mut metrics = self.metrics.write();
+            metrics.queued_requests += 1;
+            drop(metrics);
+        }
+
+        // Try to acquire permit
+        match self.semaphore.acquire().await {
+            Ok(permit) => {
+                // If we got a permit and were queued, decrement queue counter
+                if available_permits == 0 {
+                    let mut metrics = self.metrics.write();
+                    if metrics.queued_requests > 0 {
+                        metrics.queued_requests -= 1;
+                    }
+                }
         Ok(BackpressurePermit {
             semaphore: &self.semaphore,
             permit,
             acquired_at: std::time::SystemTime::now(),
         })
+            }
+            Err(e) => {
+                let mut metrics = self.metrics.write();
+                metrics.rejected_requests += 1;
+                if metrics.queued_requests > 0 {
+                    metrics.queued_requests -= 1;
+                }
+                Err(e.into())
+            }
+        }
     }
 
     async fn update_load(&self, metrics: LoadMetrics) -> Result<()> {
