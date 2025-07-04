@@ -115,7 +115,3 @@ path = "tests/unit/finality/mod.rs"
 [[test]]
 name = "unit_message"
 path = "tests/unit/message/mod.rs"
-
-[features]
-default = []
-examples = []
