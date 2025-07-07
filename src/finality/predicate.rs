@@ -134,9 +134,10 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use std::collections::HashMap;
 use std::num::NonZeroUsize;
+use async_trait::async_trait;
 
 use crate::state::BlockRef;
-use crate::finality::FinalitySignal;
+use crate::finality::{FinalitySignal, error::FinalityError};
 
 // Error types
 #[derive(Error, Debug)]
@@ -211,6 +212,16 @@ pub trait PredicateValidator: Send + Sync {
         signal: &FinalitySignal,
         config: &PredicateConfig,
     ) -> Result<PredicateResult, PredicateError>;
+}
+
+/// Core finality predicate trait for direct finality checking
+#[async_trait::async_trait]
+pub trait FinalityPredicate: Send + Sync {
+    /// Check if a block is final
+    async fn is_final(&self, block_ref: &BlockRef) -> Result<bool, FinalityError>;
+    
+    /// Wait for block finality with timeout from config
+    async fn wait_for_finality(&self, block_ref: &BlockRef) -> Result<(), FinalityError>;
 }
 
 /// Core finality verification client trait
