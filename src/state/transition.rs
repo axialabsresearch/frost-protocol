@@ -88,7 +88,10 @@ The transition system implements several key components:
 
 2. **Transition Metadata**
    ```rust
-   use frost_protocol::state::transition::{TransitionMetadata, ProofType};
+   use frost_protocol::state::{
+        transition::TransitionMetadata,
+        proof::ProofType,
+   };
    use std::time::SystemTime;
    use serde_json::json;
 
@@ -277,6 +280,7 @@ Verification includes:
 
 use serde::{Serialize, Deserialize};
 use async_trait::async_trait;
+use super::proof::ProofType;
 use crate::state::{ChainId, StateRoot, StateError, BlockId, BlockRef};
 use crate::Result;
 use std::time::SystemTime;
@@ -404,16 +408,6 @@ pub struct TransitionMetadata {
     pub version: u32,
     pub proof_type: ProofType,
     pub chain_specific: Option<serde_json::Value>,
-}
-
-/// Type of proof for state transition
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum ProofType {
-    ZK,
-    Merkle,
-    Validity,
-    Basic,
-    Custom(String),
 }
 
 /// State transition verification

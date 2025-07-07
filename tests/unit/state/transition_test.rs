@@ -8,10 +8,10 @@ use frost_protocol::{
         ChainId,
         BlockRef,
         types::BlockId,
+        proof::ProofType,
     },
     Result,
 };
-use frost_protocol::state::transition::ProofType;
 
 use std::time::SystemTime;
 use async_trait::async_trait;
