@@ -321,8 +321,8 @@ pub enum ProofType {
     Custom(String),
 }
 
-/// Verification parameters for proofs
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// Parameters for proof verification
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct VerificationParams {
     /// Security level (0-100, higher is more secure but slower)
     pub security_level: u8,
@@ -346,7 +346,7 @@ impl Default for VerificationParams {
 }
 
 /// Proof data wrapper
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ProofData {
     /// Type of proof
     pub proof_type: ProofType,
@@ -363,7 +363,7 @@ pub struct ProofData {
 }
 
 /// State proof with flexible proof system support
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct StateProof {
     /// State transition being proven
     pub transition: StateTransition,
@@ -375,7 +375,7 @@ pub struct StateProof {
 }
 
 /// Result of a proof verification
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct VerificationResult {
     /// Whether verification succeeded
     pub success: bool,

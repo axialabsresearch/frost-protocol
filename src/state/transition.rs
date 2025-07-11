@@ -286,8 +286,8 @@ use crate::Result;
 use std::time::SystemTime;
 use serde_json::json;
 
-/// State transition representation for cross-chain state management
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// State transition between blocks
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct StateTransition {
     pub chain_id: ChainId,
     pub block_height: u64,
@@ -402,12 +402,23 @@ impl StateTransition {
 }
 
 /// Metadata for state transitions
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct TransitionMetadata {
     pub timestamp: u64,
     pub version: u32,
     pub proof_type: ProofType,
     pub chain_specific: Option<serde_json::Value>,
+}
+
+impl Default for TransitionMetadata {
+    fn default() -> Self {
+        Self {
+            timestamp: 0,
+            version: 1,
+            proof_type: ProofType::Basic,
+            chain_specific: None,
+        }
+    }
 }
 
 /// State transition verification

@@ -99,7 +99,7 @@ use crate::state::BlockId;
 use std::time::SystemTime;
 
 /// Generic finality signal for any chain
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct FinalitySignal {
     /// Chain identifier
     pub chain_id: String,

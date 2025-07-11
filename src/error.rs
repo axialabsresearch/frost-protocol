@@ -275,6 +275,10 @@ pub enum Error {
     /// Generic error with message
     #[error("Generic error: {0}")]
     Generic(String),
+
+    /// Custom error
+    #[error("{0}")]
+    Custom(String),
 }
 
 impl Error {
@@ -291,6 +295,7 @@ impl Error {
             Error::ConnectionDenied(_) => false,
             Error::MessageProcessing(_) => false,
             Error::Generic(_) => false,
+            Error::Custom(_) => false
         }
     }
 }

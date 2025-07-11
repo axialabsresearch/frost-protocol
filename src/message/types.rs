@@ -141,7 +141,7 @@ use crate::state::{ChainId, StateTransition, BlockRef};
 use crate::finality::FinalitySignal;
 
 /// Protocol message types
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum MessageType {
     /// State transition message
     StateTransition,
@@ -173,7 +173,7 @@ impl Default for MessagePriority {
 }
 
 /// Proof type and verification parameters
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ProofMetadata {
     /// Type of proof being used
     pub proof_type: String,
@@ -188,7 +188,7 @@ pub struct ProofMetadata {
 }
 
 /// Additional message metadata
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct MessageMetadata {
     /// Protocol version
     pub version: u16,
@@ -205,7 +205,7 @@ pub struct MessageMetadata {
 }
 
 /// Message processing metrics
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct MessageMetrics {
     /// When message processing started
     pub processing_start: SystemTime,
@@ -218,7 +218,7 @@ pub struct MessageMetrics {
 }
 
 /// Core protocol message
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct FrostMessage {
     // Core Identity
     /// Unique message identifier

@@ -186,6 +186,17 @@ pub struct PredicateConfig {
     pub chain_params: serde_json::Value,
 }
 
+impl Default for PredicateConfig {
+    fn default() -> Self {
+        Self {
+            min_confirmations: 6,
+            evaluation_timeout: Duration::from_secs(300), // 5 minutes
+            confidence_threshold: 0.95,
+            chain_params: serde_json::json!({}),
+        }
+    }
+}
+
 /// Finality predicate validation result
 #[derive(Debug, Clone)]
 pub struct PredicateResult {
