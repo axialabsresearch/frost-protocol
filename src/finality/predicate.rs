@@ -11,6 +11,7 @@ use tokio::sync::RwLock;
 use std::collections::HashMap;
 use std::num::NonZeroUsize;
 use async_trait::async_trait;
+use std::any::Any;
 
 use crate::state::BlockRef;
 use crate::finality::{FinalitySignal, error::FinalityError};
@@ -103,7 +104,7 @@ pub trait PredicateValidator: Send + Sync {
 
 /// Core finality predicate trait for direct finality checking
 #[async_trait::async_trait]
-pub trait FinalityPredicate: Send + Sync {
+pub trait FinalityPredicate: Any + Send + Sync {
     /// Check if a block is final
     async fn is_final(&self, block_ref: &BlockRef) -> Result<bool, FinalityError>;
     
@@ -113,7 +114,10 @@ pub trait FinalityPredicate: Send + Sync {
 
 /// Core finality verification client trait
 #[async_trait::async_trait]
-pub trait FinalityVerificationClient: Send + Sync {
+pub trait FinalityVerificationClient: Any + Send + Sync {
+    // method for downcasting
+    fn as_any(&self) -> &dyn Any;
+    
     /// Get block by reference
     async fn get_block(&self, block_ref: &BlockRef) -> Result<Block, FinalityVerificationError>;
     
@@ -220,6 +224,10 @@ impl<C: FinalityVerificationClient> FinalityVerificationClient for CachingFinali
 
     async fn verify_chain_rules(&self, block_ref: &BlockRef, rules: &ChainRules) -> Result<bool, FinalityVerificationError> {
         self.inner.verify_chain_rules(block_ref, rules).await
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
     }
 }
 
